@@ -1,0 +1,32 @@
+# --- Python (backend) ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg
+
+# --- Node (frontend) ---
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# --- Env files (never commit secrets) ---
+.env
+.env.local
+.env.*.local
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Docker volumes are named, not bind-mounted, so nothing to ignore there ---
+
+# --- Logs ---
+*.log

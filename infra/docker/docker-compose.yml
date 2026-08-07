@@ -1,0 +1,45 @@
+# Backing services only — Postgres and Neo4j — that the backend develops against.
+# The backend and frontend themselves are run directly (`uvicorn`, `npm run dev`)
+# until a real deployment target exists to containerize them for (see
+# docs/architecture/01-system-architecture.md, section 6).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: forge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: forge
+    ports:
+      - "5432:5432"
+    volumes:
+      - forge-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: forge-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/forge-dev-password
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474" # HTTP browser UI
+      - "7687:7687" # Bolt protocol
+    volumes:
+      - forge-neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  forge-postgres-data:
+  forge-neo4j-data:

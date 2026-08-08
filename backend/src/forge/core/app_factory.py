@@ -15,7 +15,10 @@ Depended on by: main.py, tests/conftest.py (future).
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from forge.api.error_handlers import register_error_handlers
 from forge.api.health import router as health_router
+from forge.api.projects import router as projects_router
+from forge.api.repositories import router as repositories_router
 from forge.core.config import Settings, get_settings
 from forge.core.logging import configure_logging
 
@@ -47,6 +50,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    register_error_handlers(app)
+
     app.include_router(health_router, prefix=settings.api_v1_prefix)
+    app.include_router(projects_router, prefix=settings.api_v1_prefix)
+    app.include_router(repositories_router, prefix=settings.api_v1_prefix)
 
     return app

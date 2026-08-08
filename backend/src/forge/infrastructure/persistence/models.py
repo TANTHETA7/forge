@@ -1,0 +1,67 @@
+"""SQLAlchemy ORM models — the Postgres-side shape of `Project` and `Repository`.
+
+Purpose:       Map domain entities to relational rows.
+Responsibility: Table/column definitions only. Conversion to/from domain entities
+                lives in the `*_impl.py` repository classes, not here — these ORM
+                classes never leak into application/domain code.
+Depends on:    sqlalchemy.
+Depended on by: infrastructure/persistence/*_impl.py, infrastructure/persistence/database.py.
+
+Schema note: this phase uses `Base.metadata.create_all` (see database.py) rather
+than an Alembic migration chain. Alembic is a declared dependency
+(backend/pyproject.toml) and is the intended tool once the schema needs to evolve
+under real data — introducing it now, before there is a second migration to write
+or a live Postgres instance available in this environment to validate one against,
+would be exactly the "unnecessary machinery ahead of a proven need" this project's
+own architecture review says to avoid. Wiring Alembic is the natural next step
+before this schema's first change.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from sqlalchemy import JSON, ForeignKey, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class ProjectRow(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class RepositoryRow(Base):
+    __tablename__ = "repositories"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"))
+    source_type: Mapped[str] = mapped_column(String(20))
+    source_ref: Mapped[str] = mapped_column(Text)
+    display_name: Mapped[str] = mapped_column(String(200))
+    workspace_path: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20))
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    # Metadata columns — nullable until the repository reaches READY. Flattened
+    # rather than one JSON blob so the common fields stay directly queryable; only
+    # `language_stats` (an open-ended map) needs JSON.
+    meta_file_count: Mapped[int | None]
+    meta_directory_count: Mapped[int | None]
+    meta_total_size_bytes: Mapped[int | None]
+    meta_language_stats: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
+    meta_has_readme: Mapped[bool | None]
+    meta_has_git: Mapped[bool | None]
+    meta_scanned_at: Mapped[datetime | None]

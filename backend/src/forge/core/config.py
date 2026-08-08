@@ -50,6 +50,25 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
 
+    # -- Repository Import (Phase 2) --
+    # Root directory every imported repository's isolated workspace lives under.
+    # Workspace subpaths are always server-generated UUIDs, never derived from a
+    # project/repository name — see infrastructure/workspace/workspace_manager.py.
+    workspace_root_dir: str = "./data/workspaces"
+    # Compressed upload cap, enforced while streaming the upload to disk — the
+    # first line of defense, before the archive is even opened as a ZIP.
+    max_upload_bytes: int = 200 * 1024 * 1024
+    # Uncompressed-size, file-count, per-file, and compression-ratio caps enforced
+    # by ZipRepositorySource.validate() against the archive's central directory,
+    # and independently re-enforced byte-by-byte during extraction.
+    max_archive_uncompressed_bytes: int = 1024 * 1024 * 1024
+    max_archive_file_count: int = 50_000
+    max_archive_single_file_bytes: int = 100 * 1024 * 1024
+    max_archive_compression_ratio: int = 100
+    # Git clone bounds, enforced by GitRepositorySource.
+    git_clone_timeout_seconds: int = 120
+    max_git_repo_size_bytes: int = 1024 * 1024 * 1024
+
 
 @lru_cache
 def get_settings() -> Settings:

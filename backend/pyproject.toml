@@ -20,6 +20,7 @@ dependencies = [
     "python-multipart>=0.0.12,<1.0",
     "gitpython>=3.1,<4.0",
     "httpx>=0.27,<1.0",
+    "anyio>=4.4,<5.0",
 ]
 
 [project.optional-dependencies]
@@ -52,8 +53,16 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's `Depends(...)` in argument defaults is the framework's documented
 # dependency-injection pattern, not the mutable-default-argument bug B008 guards
-# against — this call is idempotent and side-effect-free.
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+# against — this call is idempotent and side-effect-free. `File`/`Form` are the
+# same pattern for multipart request parameters (api/repositories.py's ZIP upload).
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.File",
+    "fastapi.Form",
+]
 
 [tool.mypy]
 python_version = "3.12"

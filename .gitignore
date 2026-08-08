@@ -8,6 +8,14 @@ __pycache__/
 .ruff_cache/
 *.egg
 
+# --- Forge runtime data ---
+
+backend/data/
+
+# --- Node (frontend) ---
+
+node_modules/
+
 # --- Node (frontend) ---
 node_modules/
 dist/

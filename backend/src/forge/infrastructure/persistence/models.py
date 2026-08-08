@@ -22,12 +22,28 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    pass
+    """Declarative base for every ORM row in this package.
+
+    `type_annotation_map` is what makes this the *structural* fix rather than a
+    per-column patch: every `Mapped[datetime]` (and `Mapped[datetime | None]`)
+    column below — present or future — gets `TIMESTAMP WITH TIME ZONE` without
+    needing to remember `DateTime(timezone=True)` at each call site. The domain
+    layer only ever produces timezone-aware UTC `datetime`s (see
+    `domain/project/entities.py`, `domain/repository/entities.py`); the column type
+    must match that or asyncpg rejects the bind with `DataError: can't subtract
+    offset-naive and offset-aware datetimes` — the exact failure a plain
+    `Mapped[datetime]` (defaulting to a naive `TIMESTAMP`) produced here before this
+    fix. Postgres stores `TIMESTAMPTZ` values normalized to UTC regardless of
+    session timezone, so this doesn't depend on the connecting session's `TimeZone`
+    setting.
+    """
+
+    type_annotation_map = {datetime: DateTime(timezone=True)}
 
 
 class ProjectRow(Base):

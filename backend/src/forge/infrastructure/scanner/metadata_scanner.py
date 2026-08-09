@@ -7,18 +7,19 @@ Purpose:       Produce a lightweight structural summary of an imported repositor
                 §11); this module never opens a file for anything but `stat()`.
 Responsibility: A single read-only filesystem walk over an already-materialized
                 workspace.
-Depends on:    pathlib (stdlib), domain/repository/entities.py.
+Depends on:    pathlib (stdlib), domain/repository/entities.py,
+                infrastructure/filesystem/workspace_walker.py.
 Depended on by: application/repository_import/service.py, via
                 domain/repository/ports.py::MetadataScanner.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
 from forge.domain.repository.entities import RepositoryMetadata
+from forge.infrastructure.filesystem.workspace_walker import walk_workspace
 
 # Deliberately small and unambiguous — extended as real languages come up rather
 # than guessed at wholesale (same "no placeholder code" discipline as the AST
@@ -49,11 +50,6 @@ _EXTENSION_LANGUAGE_MAP: dict[str, str] = {
     ".css": "CSS",
 }
 
-# Directories whose contents are noise for a structural summary (VCS internals,
-# dependency caches, build output) — excluded from every count, not just hidden
-# from language stats.
-_IGNORED_DIR_NAMES = {".git", "node_modules", "__pycache__", ".venv", "dist", "build"}
-
 
 class FilesystemMetadataScanner:
     """A `MetadataScanner` that walks the workspace directory tree once."""
@@ -66,7 +62,7 @@ class FilesystemMetadataScanner:
         has_readme = False
         has_git = (workspace / ".git").exists()
 
-        for entry in _walk(workspace):
+        for entry in walk_workspace(workspace):
             if entry.is_dir():
                 directory_count += 1
                 continue
@@ -93,15 +89,6 @@ class FilesystemMetadataScanner:
             has_git=has_git,
             scanned_at=datetime.now(UTC),
         )
-
-
-def _walk(root: Path) -> Iterator[Path]:
-    for entry in root.iterdir():
-        if entry.name in _IGNORED_DIR_NAMES:
-            continue
-        yield entry
-        if entry.is_dir():
-            yield from _walk(entry)
 
 
 def _to_percentages(counts: dict[str, int], total_files: int) -> dict[str, float]:

@@ -77,3 +77,70 @@ class GitImportRequest(BaseModel):
     """Wire format for `POST /projects/{id}/repositories/import/git`."""
 
     url: str = Field(..., min_length=1, max_length=2000, examples=["https://github.com/org/repo.git"])
+
+
+class ParameterResponse(BaseModel):
+    """Wire format for a `Parameter`."""
+
+    name: str
+    position: int
+    annotation: str | None
+    default_value: str | None
+
+
+class SymbolResponse(BaseModel):
+    """Wire format for a `Symbol`."""
+
+    id: UUID
+    kind: str
+    name: str
+    qualified_name: str
+    start_line: int
+    end_line: int
+    start_column: int | None
+    end_column: int | None
+    parameters: list[ParameterResponse]
+    parent_symbol_id: UUID | None
+
+
+class ImportResponse(BaseModel):
+    """Wire format for an `Import`."""
+
+    id: UUID
+    module: str
+    imported_names: list[str]
+    alias: str | None
+    start_line: int
+    end_line: int
+
+
+class ParsedFileResponse(BaseModel):
+    """Wire format for `GET .../files` — a per-file summary, not the full symbol/
+    import list (see `GET .../symbols` for that)."""
+
+    id: UUID
+    repository_id: UUID
+    path: str
+    language: str
+    has_syntax_errors: bool
+    symbol_count: int
+    import_count: int
+
+
+class ParseErrorResponse(BaseModel):
+    """Wire format for one recorded parse failure."""
+
+    file_path: str
+    stage: str
+    message: str
+
+
+class ParseSummaryResponse(BaseModel):
+    """Wire format for `POST .../parse`."""
+
+    repository_id: UUID
+    file_count: int
+    symbol_count: int
+    import_count: int
+    error_count: int
+    parsed_at: datetime

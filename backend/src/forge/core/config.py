@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     git_clone_timeout_seconds: int = 120
     max_git_repo_size_bytes: int = 1024 * 1024 * 1024
 
+    # -- Code Parsing (Phase 3) --
+    # A single file over this size is skipped (recorded as a ParseError, not
+    # parsed) rather than read fully into memory — see
+    # infrastructure/parsing/file_discovery.py.
+    max_parse_file_bytes: int = 5 * 1024 * 1024
+
 
 @lru_cache
 def get_settings() -> Settings:

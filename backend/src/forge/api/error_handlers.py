@@ -22,6 +22,7 @@ from forge.domain.errors import (
     NotFoundError,
     SourceImportError,
     SourceValidationError,
+    UnsupportedRepositoryStateError,
     ValidationError,
     WorkspaceError,
 )
@@ -38,6 +39,7 @@ _STATUS_BY_ERROR: list[tuple[type[ForgeError], int]] = [
     (SourceValidationError, status.HTTP_400_BAD_REQUEST),
     (ValidationError, status.HTTP_400_BAD_REQUEST),
     (SourceImportError, status.HTTP_422_UNPROCESSABLE_CONTENT),
+    (UnsupportedRepositoryStateError, status.HTTP_409_CONFLICT),
     (WorkspaceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
 ]
 

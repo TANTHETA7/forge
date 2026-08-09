@@ -8,79 +8,24 @@ SQLAlchemy models. This is the only place in the suite that can catch a
 driver/schema-level defect like the naive-vs-timezone-aware datetime column bug:
 the in-memory fakes never touch a DB driver, so they pass regardless of column type.
 
-Requires `infra/docker/docker-compose.yml`'s postgres service reachable at
-localhost:5432 — skipped (not failed) if it isn't, matching the "Docker not always
-available" limitation already disclosed in docs/architecture/01-system-architecture.md.
-Each test gets a freshly dropped-and-recreated schema so tests don't leak state into
-each other or depend on run order.
+The `postgres_schema` fixture (skip-if-unreachable, drop-and-recreate per test) is
+shared via tests/integration/conftest.py — test_postgres_parsing_persistence.py and
+test_real_repository_parsing.py (Phase 3) use the same one.
 """
 
 from __future__ import annotations
 
 import io
 import zipfile
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 
-import asyncpg
 import pytest
-import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from forge.core.app_factory import create_app
 from forge.core.config import Settings, get_settings
-from forge.infrastructure.persistence import database
-from forge.infrastructure.persistence.models import Base
-
-_DSN_ASYNCPG = "postgresql://forge:forge@localhost:5432/forge"
-_DSN_SQLALCHEMY = "postgresql+asyncpg://forge:forge@localhost:5432/forge"
-
-
-async def _postgres_reachable() -> bool:
-    try:
-        connection = await asyncpg.connect(_DSN_ASYNCPG, timeout=2)
-    except (OSError, asyncpg.PostgresError):
-        return False
-    await connection.close()
-    return True
-
-
-@pytest_asyncio.fixture
-async def postgres_schema() -> AsyncIterator[None]:
-    if not await _postgres_reachable():
-        pytest.skip(
-            "Postgres not reachable at localhost:5432 — start it via "
-            "`docker compose -f infra/docker/docker-compose.yml up -d postgres`"
-        )
-
-    engine = create_async_engine(_DSN_SQLALCHEMY)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-        await connection.run_sync(Base.metadata.create_all)
-    await engine.dispose()
-
-    # database.ensure_schema() caches "already ready" per process; a stale True from
-    # an earlier test would make it skip creating the schema we just dropped.
-    database._schema_ready = False
-
-    # database._get_engine() is process-wide `@lru_cache`d — correct for the real
-    # server (one process, one event loop, for its whole lifetime) but wrong across
-    # tests: pytest-asyncio gives each test function its own event loop, and an
-    # asyncpg connection pool opened under a previous test's (now-closed) loop
-    # raises `RuntimeError: Event loop is closed` the moment a later test reuses it.
-    # Clearing the cache here forces a fresh engine, bound to *this* test's loop,
-    # without changing anything about how the real app caches its engine.
-    database._get_engine.cache_clear()
-
-    yield
-
-    engine = create_async_engine(_DSN_SQLALCHEMY)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
-    database._schema_ready = False
-    database._get_engine.cache_clear()
+from tests.integration.conftest import DSN_SQLALCHEMY
 
 
 @pytest.fixture
@@ -88,7 +33,7 @@ def client(postgres_schema: None, tmp_path: Path) -> Iterator[TestClient]:
     app = create_app(settings=Settings(environment="test"))
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="test",
-        postgres_dsn=_DSN_SQLALCHEMY,
+        postgres_dsn=DSN_SQLALCHEMY,
         workspace_root_dir=str(tmp_path / "workspaces"),
     )
     with TestClient(app) as test_client:

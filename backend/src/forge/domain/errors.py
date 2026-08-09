@@ -45,3 +45,15 @@ class WorkspaceError(ForgeError):
 class SourceImportError(ForgeError):
     """Raised when an already-validated source still fails during materialization —
     network failure, clone timeout, corrupt archive discovered mid-extraction."""
+
+
+class ParseFailure(ForgeError):
+    """Raised by a single `LanguageParser` for a single file it cannot produce a
+    usable structure from. Caught by `application/parsing/service.py` and recorded
+    as a `ParseError` — never allowed to abort parsing the rest of the repository
+    (see docs/architecture/03-parser-engine.md, "Error handling")."""
+
+
+class UnsupportedRepositoryStateError(ForgeError):
+    """Raised when an operation is requested against a `Repository` whose current
+    `status` doesn't support it — e.g. parsing a repository that isn't `READY`."""

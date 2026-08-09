@@ -144,3 +144,33 @@ class ParseSummaryResponse(BaseModel):
     import_count: int
     error_count: int
     parsed_at: datetime
+
+
+class DependencyEdgeResponse(BaseModel):
+    """Wire format for a `DependencyEdge`."""
+
+    id: UUID
+    repository_id: UUID
+    kind: str
+    resolution_status: str
+    source_file_id: UUID
+    source_symbol_id: UUID | None
+    target_file_id: UUID | None
+    target_symbol_id: UUID | None
+    raw_target_expression: str
+    start_line: int
+    end_line: int
+    start_column: int | None
+    end_column: int | None
+    detail: str | None
+
+
+class DependencyAnalysisSummaryResponse(BaseModel):
+    """Wire format for `POST .../analyze-dependencies`."""
+
+    repository_id: UUID
+    edge_count: int
+    resolved_count: int
+    ambiguous_count: int
+    unresolved_count: int
+    analyzed_at: datetime

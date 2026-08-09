@@ -1,16 +1,23 @@
-"""In-memory fakes for the Phase 2/3 persistence ports.
+"""In-memory fakes for the Phase 2/3/4 persistence ports.
 
 Purpose: Let unit/integration tests exercise application services and API routes
 against real port contracts (`ProjectRepository`, `RepositoryRepository`,
-`ParsedFileRepository`) without a live Postgres — real-Postgres coverage for the
-SQLAlchemy implementations lives in tests/integration/test_postgres_persistence.py
-and test_postgres_parsing_persistence.py instead.
+`ParsedFileRepository`, `DependencyEdgeRepository`) without a live Postgres —
+real-Postgres coverage for the SQLAlchemy implementations lives in
+tests/integration/test_postgres_persistence.py,
+test_postgres_parsing_persistence.py, and
+test_postgres_dependency_persistence.py instead.
 """
 
 from __future__ import annotations
 
 from uuid import UUID
 
+from forge.domain.dependency_analysis.entities import (
+    DependencyEdge,
+    DependencyKind,
+    ResolutionStatus,
+)
 from forge.domain.parsing.entities import ParsedFile, ParseError, ParseResult, Symbol, SymbolKind
 from forge.domain.project.entities import Project
 from forge.domain.repository.entities import Repository
@@ -90,3 +97,45 @@ class InMemoryParsedFileRepository:
     async def get_errors(self, repository_id: UUID) -> list[ParseError]:
         result = self._results.get(repository_id)
         return list(result.errors) if result else []
+
+
+class InMemoryDependencyEdgeRepository:
+    """Mirrors `SqlAlchemyDependencyEdgeRepository`'s replace-on-reanalysis
+    semantics — `save_analysis_result` discards any previous edges for the
+    same repository."""
+
+    def __init__(self) -> None:
+        self._edges: dict[UUID, tuple[DependencyEdge, ...]] = {}
+
+    async def save_analysis_result(
+        self, repository_id: UUID, edges: tuple[DependencyEdge, ...]
+    ) -> None:
+        self._edges[repository_id] = edges
+
+    async def get_edges(
+        self,
+        repository_id: UUID,
+        *,
+        kind: DependencyKind | None = None,
+        source_symbol_id: UUID | None = None,
+        target_symbol_id: UUID | None = None,
+        resolution_status: ResolutionStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[DependencyEdge]:
+        edges = [
+            edge
+            for edge in self._edges.get(repository_id, ())
+            if (kind is None or edge.kind is kind)
+            and (source_symbol_id is None or edge.source_symbol_id == source_symbol_id)
+            and (target_symbol_id is None or edge.target_symbol_id == target_symbol_id)
+            and (resolution_status is None or edge.resolution_status is resolution_status)
+        ]
+        return edges[offset : offset + limit]
+
+    async def get_edge(self, dependency_id: UUID) -> DependencyEdge | None:
+        for edges in self._edges.values():
+            for edge in edges:
+                if edge.id == dependency_id:
+                    return edge
+        return None

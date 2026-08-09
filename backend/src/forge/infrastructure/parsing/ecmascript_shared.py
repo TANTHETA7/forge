@@ -18,10 +18,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from forge.domain.parsing.entities import Import, SymbolKind
+from forge.domain.parsing.entities import CallReference, Import, SymbolKind
 from forge.infrastructure.parsing.treesitter_support import (
     deterministic_id,
     find_all,
+    find_within_excluding,
     location_of,
     text_of,
 )
@@ -36,6 +37,15 @@ SYMBOL_NODE_TYPES: dict[str, SymbolKind] = {
 }
 
 _IMPORT_NODE_TYPES = frozenset({"import_statement"})
+_CALL_NODE_TYPES = frozenset({"call_expression"})
+
+# A call site belongs to the nearest enclosing FUNCTION/METHOD/CLASS symbol —
+# don't descend into a nested one's body when collecting the outer symbol's own
+# calls (see treesitter_support.py::find_within_excluding). Same rationale as
+# python_parser.py's equivalent constant.
+_NESTED_DEFINITION_TYPES = frozenset(
+    {"function_declaration", "class_declaration", "method_definition"}
+)
 
 
 def pattern_name(node: Node) -> str | None:
@@ -57,6 +67,42 @@ def pattern_name(node: Node) -> str | None:
     if node.type in ("object_pattern", "array_pattern"):
         return text_of(node)
     return None
+
+
+def extract_class_heritage(node: Node) -> tuple[str, ...]:
+    """Base-class expression text for a `class_declaration` node — JS and TS
+    structure this differently (probed during planning, not assumed): JS's
+    `class_heritage` child directly contains `extends` + the base expression;
+    TS's `class_heritage` wraps an `extends_clause` (and optionally an
+    `implements_clause`, deliberately ignored — `implements` is a type
+    constraint, not inheritance) which itself contains `extends` + the base
+    expression. Unwrapping `extends_clause` when present, then dropping the
+    `extends` token, handles both shapes with one piece of logic. JS/TS only
+    ever have a single base class (unlike Python's multiple inheritance), so
+    this returns 0 or 1 items, never more.
+    """
+    heritage = next((c for c in node.children if c.type == "class_heritage"), None)
+    if heritage is None:
+        return ()
+    extends_clause = next((c for c in heritage.children if c.type == "extends_clause"), None)
+    container = extends_clause if extends_clause is not None else heritage
+    return tuple(text_of(child) for child in container.children if child.type != "extends")
+
+
+def extract_ecmascript_calls(node: Node) -> tuple[CallReference, ...]:
+    """Call sites (`call_expression`) found directly in `node`'s body, excluding
+    any nested function/class/method definition's own body — see
+    treesitter_support.py::find_within_excluding."""
+    calls = find_within_excluding(node, _CALL_NODE_TYPES, _NESTED_DEFINITION_TYPES)
+    result = []
+    for call in calls:
+        function_node = call.child_by_field_name("function")
+        if function_node is None:
+            continue
+        result.append(
+            CallReference(callee_expression=text_of(function_node), location=location_of(call))
+        )
+    return tuple(result)
 
 
 def strip_type_annotation(node: Node | None) -> str | None:

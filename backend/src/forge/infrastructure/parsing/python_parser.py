@@ -29,11 +29,19 @@ from uuid import UUID
 from tree_sitter_language_pack import get_parser
 
 from forge.domain.errors import ParseFailure
-from forge.domain.parsing.entities import Import, Language, Parameter, ParsedFile, SymbolKind
+from forge.domain.parsing.entities import (
+    CallReference,
+    Import,
+    Language,
+    Parameter,
+    ParsedFile,
+    SymbolKind,
+)
 from forge.infrastructure.parsing.treesitter_support import (
     deterministic_id,
     extract_symbols,
     find_all,
+    find_within_excluding,
     location_of,
     text_of,
 )
@@ -59,6 +67,17 @@ _PARAMETER_NODE_TYPES = frozenset(
     }
 )
 
+# Node types a base-class expression can be: a plain name (`Base`) or a dotted
+# attribute access (`pkg.Base`). `argument_list` (the `superclasses` field) can
+# also contain `keyword_argument` (`metaclass=Meta`) — deliberately excluded,
+# it's a class-construction option, not a base class.
+_BASE_CLASS_EXPRESSION_TYPES = frozenset({"identifier", "attribute"})
+
+# A call site belongs to the nearest enclosing FUNCTION/METHOD/CLASS symbol —
+# don't descend into a nested one's body when collecting the outer symbol's own
+# calls (see treesitter_support.py::find_within_excluding).
+_NESTED_DEFINITION_TYPES = frozenset({"function_definition", "class_definition"})
+
 
 class _PythonSymbolSpec:
     """The language-specific hooks `extract_symbols` needs for Python."""
@@ -77,6 +96,28 @@ class _PythonSymbolSpec:
             parameter = _extract_parameter(child, len(result))
             if parameter is not None:
                 result.append(parameter)
+        return tuple(result)
+
+    def extract_base_classes(self, node: Node) -> tuple[str, ...]:
+        superclasses_node = node.child_by_field_name("superclasses")
+        if superclasses_node is None:
+            return ()
+        return tuple(
+            text_of(child)
+            for child in superclasses_node.children
+            if child.type in _BASE_CLASS_EXPRESSION_TYPES
+        )
+
+    def extract_calls(self, node: Node) -> tuple[CallReference, ...]:
+        calls = find_within_excluding(node, frozenset({"call"}), _NESTED_DEFINITION_TYPES)
+        result = []
+        for call in calls:
+            function_node = call.child_by_field_name("function")
+            if function_node is None:
+                continue
+            result.append(
+                CallReference(callee_expression=text_of(function_node), location=location_of(call))
+            )
         return tuple(result)
 
 

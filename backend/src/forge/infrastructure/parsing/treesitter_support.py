@@ -30,7 +30,13 @@ import uuid
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
-from forge.domain.parsing.entities import Parameter, SourceLocation, Symbol, SymbolKind
+from forge.domain.parsing.entities import (
+    CallReference,
+    Parameter,
+    SourceLocation,
+    Symbol,
+    SymbolKind,
+)
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -103,6 +109,20 @@ class SymbolExtractionSpec(Protocol):
         nodes whose `symbol_kind_for` result is `FUNCTION` or `METHOD`."""
         ...
 
+    def extract_base_classes(self, node: Node) -> tuple[str, ...]:
+        """Base-class expression text for a matched class-kind node (Phase 4 —
+        see domain/parsing/entities.py::Symbol.base_class_names). Called only
+        for nodes whose effective kind is `CLASS`."""
+        ...
+
+    def extract_calls(self, node: Node) -> tuple[CallReference, ...]:
+        """Call sites found directly in a matched function/method-kind node's
+        body — excluding any nested function/class definition's own body,
+        which gets its own `Symbol` and its own `extract_calls` call when the
+        walk reaches it (Phase 4 — see domain/parsing/entities.py::Symbol.calls).
+        Called only for nodes whose effective kind is `FUNCTION` or `METHOD`."""
+        ...
+
 
 def extract_symbols(
     root: Node,
@@ -145,11 +165,10 @@ def extract_symbols(
                 symbol_id = deterministic_id(
                     str(repository_id), file_path, qualified_name, effective_kind.value
                 )
-                parameters = (
-                    ()
-                    if effective_kind is SymbolKind.CLASS
-                    else spec.extract_parameters(node)
-                )
+                is_class = effective_kind is SymbolKind.CLASS
+                parameters = () if is_class else spec.extract_parameters(node)
+                base_class_names = spec.extract_base_classes(node) if is_class else ()
+                calls = () if is_class else spec.extract_calls(node)
                 symbols.append(
                     Symbol(
                         id=symbol_id,
@@ -159,6 +178,8 @@ def extract_symbols(
                         location=location_of(node),
                         parameters=parameters,
                         parent_symbol_id=parent_id,
+                        base_class_names=base_class_names,
+                        calls=calls,
                     )
                 )
                 if effective_kind is SymbolKind.CLASS:
@@ -169,6 +190,32 @@ def extract_symbols(
 
     walk(root, None)
     return tuple(symbols)
+
+
+def find_within_excluding(
+    node: Node, target_types: frozenset[str], boundary_types: frozenset[str]
+) -> list[Node]:
+    """Every descendant of `node` (`node` itself excluded) whose type is in
+    `target_types`, never descending into a subtree rooted at a `boundary_types`
+    node. Used by `extract_calls` implementations to collect a function's own
+    call sites without also collecting calls that belong to a nested function/
+    class definition — that nested definition gets its own `Symbol` and its own
+    `extract_calls` call when the walk in `extract_symbols` reaches it
+    separately; without the boundary, a call inside a closure would be counted
+    against both the inner and outer symbol.
+    """
+    found: list[Node] = []
+
+    def walk(n: Node) -> None:
+        for child in n.children:
+            if child.type in boundary_types:
+                continue
+            if child.type in target_types:
+                found.append(child)
+            walk(child)
+
+    walk(node)
+    return found
 
 
 def find_all(root: Node, node_types: frozenset[str]) -> list[Node]:

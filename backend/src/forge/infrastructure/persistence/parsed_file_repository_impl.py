@@ -28,6 +28,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from forge.domain.parsing.entities import (
+    CallReference,
     Import,
     Language,
     Parameter,
@@ -39,6 +40,7 @@ from forge.domain.parsing.entities import (
     SymbolKind,
 )
 from forge.infrastructure.persistence.models import (
+    CallSiteRow,
     ImportRow,
     ParameterRow,
     ParsedFileRow,
@@ -86,6 +88,8 @@ class SqlAlchemyParsedFileRepository:
             for symbol in parsed_file.symbols:
                 for parameter in symbol.parameters:
                     self._session.add(_parameter_to_row(parameter, symbol_id=symbol.id))
+                for call in symbol.calls:
+                    self._session.add(_call_to_row(call, symbol_id=symbol.id))
             for import_ in parsed_file.imports:
                 self._session.add(
                     _import_to_row(
@@ -130,7 +134,8 @@ class SqlAlchemyParsedFileRepository:
         symbols = []
         for row in rows:
             parameters = await self._parameters_for(row.id)
-            symbols.append(_row_to_symbol(row, parameters))
+            calls = await self._calls_for(row.id)
+            symbols.append(_row_to_symbol(row, parameters, calls))
         return symbols
 
     async def get_symbol(self, symbol_id: UUID) -> Symbol | None:
@@ -138,7 +143,8 @@ class SqlAlchemyParsedFileRepository:
         if row is None:
             return None
         parameters = await self._parameters_for(symbol_id)
-        return _row_to_symbol(row, parameters)
+        calls = await self._calls_for(symbol_id)
+        return _row_to_symbol(row, parameters, calls)
 
     async def get_errors(self, repository_id: UUID) -> list[ParseError]:
         rows = (
@@ -164,7 +170,8 @@ class SqlAlchemyParsedFileRepository:
         symbols = []
         for symbol_row in symbol_rows:
             parameters = await self._parameters_for(symbol_row.id)
-            symbols.append(_row_to_symbol(symbol_row, parameters))
+            calls = await self._calls_for(symbol_row.id)
+            symbols.append(_row_to_symbol(symbol_row, parameters, calls))
 
         import_rows = (
             (await self._session.execute(select(ImportRow).where(ImportRow.file_id == row.id)))
@@ -205,6 +212,31 @@ class SqlAlchemyParsedFileRepository:
             for row in rows
         ]
 
+    async def _calls_for(self, symbol_id: UUID) -> list[CallReference]:
+        rows = (
+            (
+                await self._session.execute(
+                    select(CallSiteRow)
+                    .where(CallSiteRow.symbol_id == symbol_id)
+                    .order_by(CallSiteRow.start_line)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            CallReference(
+                callee_expression=row.callee_expression,
+                location=SourceLocation(
+                    start_line=row.start_line,
+                    end_line=row.end_line,
+                    start_column=None,
+                    end_column=None,
+                ),
+            )
+            for row in rows
+        ]
+
 
 def _file_to_row(parsed_file: ParsedFile, *, parsed_at: datetime) -> ParsedFileRow:
     return ParsedFileRow(
@@ -230,6 +262,7 @@ def _symbol_to_row(symbol: Symbol, *, file_id: UUID, repository_id: UUID) -> Sym
         end_line=symbol.location.end_line,
         start_column=symbol.location.start_column,
         end_column=symbol.location.end_column,
+        base_class_names=list(symbol.base_class_names) or None,
     )
 
 
@@ -241,6 +274,16 @@ def _parameter_to_row(parameter: Parameter, *, symbol_id: UUID) -> ParameterRow:
         position=parameter.position,
         annotation=parameter.annotation,
         default_value=parameter.default_value,
+    )
+
+
+def _call_to_row(call: CallReference, *, symbol_id: UUID) -> CallSiteRow:
+    return CallSiteRow(
+        id=uuid4(),
+        symbol_id=symbol_id,
+        callee_expression=call.callee_expression,
+        start_line=call.location.start_line,
+        end_line=call.location.end_line,
     )
 
 
@@ -268,7 +311,9 @@ def _error_to_row(error: ParseError, *, repository_id: UUID) -> ParseErrorRow:
     )
 
 
-def _row_to_symbol(row: SymbolRow, parameters: list[Parameter]) -> Symbol:
+def _row_to_symbol(
+    row: SymbolRow, parameters: list[Parameter], calls: list[CallReference]
+) -> Symbol:
     return Symbol(
         id=row.id,
         kind=SymbolKind(row.kind),
@@ -282,6 +327,8 @@ def _row_to_symbol(row: SymbolRow, parameters: list[Parameter]) -> Symbol:
         ),
         parameters=tuple(parameters),
         parent_symbol_id=row.parent_symbol_id,
+        base_class_names=tuple(row.base_class_names or ()),
+        calls=tuple(calls),
     )
 
 

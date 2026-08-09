@@ -18,6 +18,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from forge.domain.parsing.entities import (
+    CallReference,
     Import,
     Language,
     Parameter,
@@ -102,6 +103,7 @@ def _sample_result(repository_id, file_path: str = "src/app.py") -> ParseResult:
         location=SourceLocation(start_line=1, end_line=10, start_column=0, end_column=None),
         parameters=(),
         parent_symbol_id=None,
+        base_class_names=("Base",),
     )
     method_symbol = Symbol(
         id=method_id,
@@ -114,6 +116,12 @@ def _sample_result(repository_id, file_path: str = "src/app.py") -> ParseResult:
             Parameter(name="x", position=1, annotation="int", default_value="1"),
         ),
         parent_symbol_id=class_id,
+        calls=(
+            CallReference(
+                callee_expression="helper",
+                location=SourceLocation(start_line=3, end_line=3, start_column=8, end_column=None),
+            ),
+        ),
     )
     import_ = Import(
         id=uuid4(),
@@ -154,6 +162,36 @@ async def test_save_and_read_back_full_parse_result(
     assert files[0].has_syntax_errors is False
     assert {s.name for s in files[0].symbols} == {"Foo", "bar"}
     assert files[0].imports[0].module == "os"
+
+
+@pytest.mark.asyncio
+async def test_base_class_names_round_trip(session: AsyncSession, repository_id: UUID) -> None:
+    result = _sample_result(repository_id)
+    repo = SqlAlchemyParsedFileRepository(session)
+    await repo.save_parse_result(result)
+
+    symbols = await repo.get_symbols(repository_id)
+    class_symbol = next(s for s in symbols if s.kind is SymbolKind.CLASS)
+    method_symbol = next(s for s in symbols if s.kind is SymbolKind.METHOD)
+
+    assert class_symbol.base_class_names == ("Base",)
+    assert method_symbol.base_class_names == ()  # only CLASS rows carry this
+
+
+@pytest.mark.asyncio
+async def test_calls_round_trip(session: AsyncSession, repository_id: UUID) -> None:
+    result = _sample_result(repository_id)
+    repo = SqlAlchemyParsedFileRepository(session)
+    await repo.save_parse_result(result)
+
+    symbols = await repo.get_symbols(repository_id)
+    class_symbol = next(s for s in symbols if s.kind is SymbolKind.CLASS)
+    method_symbol = next(s for s in symbols if s.kind is SymbolKind.METHOD)
+
+    assert len(method_symbol.calls) == 1
+    assert method_symbol.calls[0].callee_expression == "helper"
+    assert method_symbol.calls[0].location.start_line == 3
+    assert class_symbol.calls == ()  # only FUNCTION/METHOD rows carry this
 
 
 @pytest.mark.asyncio

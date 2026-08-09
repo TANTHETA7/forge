@@ -123,6 +123,12 @@ class SymbolRow(Base):
     end_line: Mapped[int]
     start_column: Mapped[int | None]
     end_column: Mapped[int | None]
+    # Phase 4 addition (domain/parsing/entities.py::Symbol.base_class_names) —
+    # populated only for CLASS rows, `NULL`/empty for FUNCTION/METHOD. JSON
+    # rather than a join table: an ordered list of raw expression text, never
+    # queried by individual element, so a relational table would add a join
+    # with no read benefit.
+    base_class_names: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
 
 class ParameterRow(Base):
@@ -134,6 +140,24 @@ class ParameterRow(Base):
     position: Mapped[int]
     annotation: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CallSiteRow(Base):
+    """Phase 4 addition (domain/parsing/entities.py::Symbol.calls) — one row per
+    call expression found in a FUNCTION/METHOD symbol's body. A separate table,
+    unlike `base_class_names`: call sites are consumed one-at-a-time by
+    dependency analysis (each becomes its own `DependencyEdge` — see
+    docs/architecture/04-dependency-analysis.md), not read back as a single
+    unit the way a symbol's base-class list is.
+    """
+
+    __tablename__ = "call_sites"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    symbol_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"))
+    callee_expression: Mapped[str] = mapped_column(Text)
+    start_line: Mapped[int]
+    end_line: Mapped[int]
 
 
 class ImportRow(Base):

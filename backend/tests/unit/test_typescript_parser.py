@@ -36,6 +36,25 @@ def test_extracts_class_and_its_methods_with_parent_link() -> None:
     assert method.name == "methodA"
     assert method.parent_symbol_id == class_symbol.id
     assert method.qualified_name == "Foo.methodA"
+    assert class_symbol.base_class_names == ("Base",)
+
+
+def test_extends_and_implements_only_extends_counts_as_inheritance() -> None:
+    result = _parse("class Foo extends Base implements Iface, Other {\n}\n")
+    class_symbol = next(s for s in result.symbols if s.kind is SymbolKind.CLASS)
+    # `implements` is a type constraint, not inheritance — deliberately excluded.
+    assert class_symbol.base_class_names == ("Base",)
+
+
+def test_extracts_bare_call() -> None:
+    result = _parse("function f() {\n  helper();\n}\n")
+    assert result.symbols[0].calls[0].callee_expression == "helper"
+
+
+def test_extracts_this_attribute_call() -> None:
+    result = _parse("class C {\n  m(): void {\n    this.other();\n  }\n}\n")
+    method = next(s for s in result.symbols if s.name == "m")
+    assert method.calls[0].callee_expression == "this.other"
 
 
 def test_extracts_typed_parameters_with_annotations_and_defaults() -> None:

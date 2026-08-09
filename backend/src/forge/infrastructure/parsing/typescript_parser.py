@@ -30,9 +30,11 @@ from uuid import UUID
 from tree_sitter_language_pack import get_parser
 
 from forge.domain.errors import ParseFailure
-from forge.domain.parsing.entities import Language, Parameter, ParsedFile, SymbolKind
+from forge.domain.parsing.entities import CallReference, Language, Parameter, ParsedFile, SymbolKind
 from forge.infrastructure.parsing.ecmascript_shared import (
     SYMBOL_NODE_TYPES,
+    extract_class_heritage,
+    extract_ecmascript_calls,
     extract_ecmascript_imports,
     pattern_name,
     strip_type_annotation,
@@ -70,6 +72,12 @@ class _TypeScriptSymbolSpec:
             if parameter is not None:
                 result.append(parameter)
         return tuple(result)
+
+    def extract_base_classes(self, node: Node) -> tuple[str, ...]:
+        return extract_class_heritage(node)
+
+    def extract_calls(self, node: Node) -> tuple[CallReference, ...]:
+        return extract_ecmascript_calls(node)
 
 
 def _extract_wrapped_parameter(node: Node, position: int) -> Parameter | None:

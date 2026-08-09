@@ -1,4 +1,4 @@
-"""Normalized code-structure domain model — Phase 3.
+"""Normalized code-structure domain model — Phase 3 (extended in Phase 4).
 
 Purpose:       Define what a "parsed file" is, independent of tree-sitter, any other
                 parsing library, or persistence. This is the contract every
@@ -7,8 +7,9 @@ Purpose:       Define what a "parsed file" is, independent of tree-sitter, any o
                 persistence layer, the read API) works with — no tree-sitter `Node`
                 object, or any other parser-library type, ever crosses out of
                 infrastructure.
-Responsibility: `ParsedFile`, `Symbol`, `Parameter`, `Import`, `ParseError`,
-                `ParseResult` — the full result of parsing one repository.
+Responsibility: `ParsedFile`, `Symbol`, `Parameter`, `CallReference`, `Import`,
+                `ParseError`, `ParseResult` — the full result of parsing one
+                repository.
 
 Why one `Symbol` entity instead of separate `Function`/`Class`/`Method` classes:
     the three share every field (name, qualified name, location, parameters) and
@@ -19,16 +20,23 @@ Why one `Symbol` entity instead of separate `Function`/`Class`/`Method` classes:
     `File --CONTAINS--> Symbol` / future `Class --CONTAINS--> Method` sketch) —
     captured now, without building any graph traversal on top of it yet.
 
-Deliberately NOT modeled here (out of Phase 3's stated scope — see
-docs/architecture/03-parser-engine.md): docstrings, resolved types, call graphs,
-cross-file symbol references. `qualified_name` and `parent_symbol_id` are the only
-forward-looking fields, and both are needed by Phase 4/5's own relationship sketch,
-not speculative additions.
+`Symbol.base_class_names` and `Symbol.calls` were added in Phase 4 (docs/
+architecture/04-dependency-analysis.md) — Phase 3 originally recorded neither;
+once dependency analysis needed to resolve CALLS/INHERITS relationships, these
+were the minimum additional facts required, captured in the *same* tree-sitter
+walk rather than a second parsing pass (see infrastructure/parsing/
+treesitter_support.py). Both fields default to `()`, so no code that constructs
+a `Symbol` without them breaks. Still deliberately NOT modeled: docstrings,
+resolved types, or the *resolution* of a call/base-class name to a specific
+target — that resolution is application/dependency_analysis's job, not the
+parser's; `Symbol` only records the raw, unresolved facts it observed.
 
 Depends on:    stdlib only.
 Depended on by: domain/parsing/ports.py, infrastructure/parsing/*.py,
                 application/parsing/service.py, infrastructure/persistence/
-                parsed_file_repository_impl.py, api/parsing.py.
+                parsed_file_repository_impl.py, api/parsing.py,
+                domain/dependency_analysis/*.py (consumes `calls`/
+                `base_class_names`, produces no changes here).
 """
 
 from __future__ import annotations
@@ -96,6 +104,26 @@ class Parameter:
 
 
 @dataclass(frozen=True, slots=True)
+class CallReference:
+    """One call expression found inside a `FUNCTION`/`METHOD` symbol's body —
+    added in Phase 4 (docs/architecture/04-dependency-analysis.md) to give
+    dependency analysis a CALLS relationship to resolve, without a second
+    parsing pass: captured in the same tree-sitter walk Phase 3 already does.
+
+    Attributes:
+        callee_expression: The call's raw target text, verbatim — `"helper"`,
+            `"self.method_b"`, `"obj.attr.method"`, `"module.func"`. Not
+            resolved here; resolving it to a specific `Symbol` (or determining
+            it can't be, e.g. an arbitrary object attribute chain) is
+            application/dependency_analysis's job, not the parser's.
+        location: Where this call expression sits in its file.
+    """
+
+    callee_expression: str
+    location: SourceLocation
+
+
+@dataclass(frozen=True, slots=True)
 class Symbol:
     """One function, class, or method definition found in a parsed file.
 
@@ -114,6 +142,14 @@ class Symbol:
         parameters: Empty for `CLASS`; the parameter list for `FUNCTION`/`METHOD`.
         parent_symbol_id: For a `METHOD`, the `id` of its containing `CLASS`
             symbol. `None` for top-level functions and for classes themselves.
+        base_class_names: Populated only for `CLASS` — the raw text of each
+            base-class expression (`"Base"`, `"pkg.Base"`), verbatim, in source
+            order. Empty for `FUNCTION`/`METHOD`. Not resolved to a specific
+            `Symbol` here — see `CallReference.callee_expression`'s note; the
+            same division of labor applies (Phase 4 resolves, Phase 3 records
+            the raw fact).
+        calls: Populated only for `FUNCTION`/`METHOD` — every call expression
+            found in this symbol's body. Empty for `CLASS`.
     """
 
     id: UUID
@@ -123,6 +159,8 @@ class Symbol:
     location: SourceLocation
     parameters: tuple[Parameter, ...]
     parent_symbol_id: UUID | None
+    base_class_names: tuple[str, ...] = ()
+    calls: tuple[CallReference, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

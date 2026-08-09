@@ -136,6 +136,86 @@ def test_stable_id_across_repeated_parses_of_identical_source() -> None:
     assert first.symbols[0].id == second.symbols[0].id
 
 
+def test_extracts_single_base_class() -> None:
+    result = _parse("class Foo(Base):\n    pass\n")
+    assert result.symbols[0].base_class_names == ("Base",)
+
+
+def test_extracts_multiple_base_classes_and_excludes_keyword_arguments() -> None:
+    result = _parse("class Foo(Base, Mixin, metaclass=Meta):\n    pass\n")
+    assert result.symbols[0].base_class_names == ("Base", "Mixin")
+
+
+def test_extracts_dotted_base_class() -> None:
+    result = _parse("class Foo(pkg.Base):\n    pass\n")
+    assert result.symbols[0].base_class_names == ("pkg.Base",)
+
+
+def test_class_with_no_bases_has_empty_base_class_names() -> None:
+    result = _parse("class Foo:\n    pass\n")
+    assert result.symbols[0].base_class_names == ()
+
+
+def test_function_and_method_have_no_base_class_names() -> None:
+    result = _parse("def f():\n    pass\n\nclass C:\n    def m(self):\n        pass\n")
+    assert all(s.base_class_names == () for s in result.symbols)
+
+
+def test_extracts_bare_call() -> None:
+    result = _parse("def f():\n    helper()\n")
+    calls = result.symbols[0].calls
+    assert len(calls) == 1
+    assert calls[0].callee_expression == "helper"
+
+
+def test_extracts_self_attribute_call() -> None:
+    result = _parse("class C:\n    def m(self):\n        self.other()\n")
+    method = next(s for s in result.symbols if s.name == "m")
+    assert method.calls[0].callee_expression == "self.other"
+
+
+def test_extracts_dotted_module_call() -> None:
+    result = _parse("def f():\n    module.attr.func()\n")
+    assert result.symbols[0].calls[0].callee_expression == "module.attr.func"
+
+
+def test_class_has_no_calls() -> None:
+    result = _parse("class C:\n    pass\n")
+    assert result.symbols[0].calls == ()
+
+
+def test_nested_function_calls_are_not_double_counted() -> None:
+    source = (
+        "def outer():\n"
+        "    outer_call()\n"
+        "    def inner():\n"
+        "        inner_call()\n"
+        "    return inner\n"
+    )
+    result = _parse(source)
+    outer = next(s for s in result.symbols if s.name == "outer")
+    inner = next(s for s in result.symbols if s.name == "inner")
+
+    assert [c.callee_expression for c in outer.calls] == ["outer_call"]
+    assert [c.callee_expression for c in inner.calls] == ["inner_call"]
+
+
+def test_calls_inside_a_nested_class_belong_to_that_class_not_the_enclosing_function() -> None:
+    source = (
+        "def outer():\n"
+        "    outer_call()\n"
+        "    class Inner:\n"
+        "        def m(self):\n"
+        "            inner_call()\n"
+    )
+    result = _parse(source)
+    outer = next(s for s in result.symbols if s.name == "outer")
+    method = next(s for s in result.symbols if s.name == "m")
+
+    assert [c.callee_expression for c in outer.calls] == ["outer_call"]
+    assert [c.callee_expression for c in method.calls] == ["inner_call"]
+
+
 def test_duplicate_function_name_in_different_files_gets_different_ids() -> None:
     repo_id = uuid4()
     source = "def helper():\n    pass\n"

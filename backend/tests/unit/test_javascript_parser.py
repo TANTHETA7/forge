@@ -38,6 +38,45 @@ def test_extracts_class_and_its_methods_with_parent_link() -> None:
     assert {m.name for m in methods} == {"methodA", "methodB"}
     for method in methods:
         assert method.parent_symbol_id == class_symbol.id
+    assert class_symbol.base_class_names == ("Base",)
+
+
+def test_class_with_no_extends_has_empty_base_class_names() -> None:
+    result = _parse("class Foo {\n}\n")
+    assert result.symbols[0].base_class_names == ()
+
+
+def test_extracts_bare_call() -> None:
+    result = _parse("function f() {\n  helper();\n}\n")
+    assert result.symbols[0].calls[0].callee_expression == "helper"
+
+
+def test_extracts_this_attribute_call() -> None:
+    result = _parse("class C {\n  m() {\n    this.other();\n  }\n}\n")
+    method = next(s for s in result.symbols if s.name == "m")
+    assert method.calls[0].callee_expression == "this.other"
+
+
+def test_extracts_dotted_module_call() -> None:
+    result = _parse("function f() {\n  module.attr.func();\n}\n")
+    assert result.symbols[0].calls[0].callee_expression == "module.attr.func"
+
+
+def test_nested_function_calls_are_not_double_counted() -> None:
+    source = (
+        "function outer() {\n"
+        "  outerCall();\n"
+        "  function inner() {\n"
+        "    innerCall();\n"
+        "  }\n"
+        "}\n"
+    )
+    result = _parse(source)
+    outer = next(s for s in result.symbols if s.name == "outer")
+    inner = next(s for s in result.symbols if s.name == "inner")
+
+    assert [c.callee_expression for c in outer.calls] == ["outerCall"]
+    assert [c.callee_expression for c in inner.calls] == ["innerCall"]
 
 
 def test_arrow_functions_are_not_extracted_as_symbols() -> None:

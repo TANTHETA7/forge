@@ -75,6 +75,27 @@ class Settings(BaseSettings):
     # infrastructure/parsing/file_discovery.py.
     max_parse_file_bytes: int = 5 * 1024 * 1024
 
+    # -- Code Intelligence (Phase 6) --
+    # Server-enforced ceilings on graph traversal — a client's `depth`/`limit`
+    # query params are checked against these inside each route handler body
+    # (against this *injected* Settings object, not via FastAPI `Query(le=...)`,
+    # which is evaluated once at import time and can't read a per-request
+    # dependency — see api/graph_intelligence.py's `_check_depth`/`_check_limit`)
+    # so a request can never ask for an unbounded traversal, regardless of what
+    # it requests. Defaults match docs/architecture/06-code-intelligence.md's
+    # own "Performance" section.
+    graph_max_impact_depth: int = 10
+    graph_max_path_depth: int = 15
+    graph_max_result_limit: int = 500
+    graph_default_result_limit: int = 100
+    # Bounds every Neo4jGraphIntelligenceRepository query via
+    # `asyncio.wait_for(...)` around the whole read, not the `neo4j` driver's
+    # own per-statement `Query(timeout=...)` — that was tried first and
+    # empirically found to be rejected inside a managed transaction (see
+    # infrastructure/graph_intelligence/neo4j_graph_intelligence_repository.py's
+    # own module docstring for the confirmed error).
+    graph_query_timeout_seconds: float = 10.0
+
 
 @lru_cache
 def get_settings() -> Settings:

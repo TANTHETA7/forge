@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from forge.domain.parsing.entities import (
@@ -160,6 +160,14 @@ class SqlAlchemyParsedFileRepository:
             ParseError(file_path=row.file_path, stage=row.stage, message=row.message)
             for row in rows
         ]
+
+    async def get_last_parsed_at(self, repository_id: UUID) -> datetime | None:
+        result = await self._session.execute(
+            select(func.max(ParsedFileRow.parsed_at)).where(
+                ParsedFileRow.repository_id == repository_id
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def _assemble_file(self, row: ParsedFileRow) -> ParsedFile:
         symbol_rows = (

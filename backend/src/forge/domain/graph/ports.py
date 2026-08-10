@@ -90,13 +90,21 @@ class GraphRepository(Protocol):
         node_id: UUID,
         *,
         direction: Literal["incoming", "outgoing", "both"] = "both",
+        kind: GraphRelationshipKind | None = None,
         limit: int = 100,
     ) -> list[GraphNeighbor] | None:
         """Direct neighbors of `node_id`, or `None` if `node_id` doesn't
         exist *within this repository* — a node_id that exists but belongs
         to a different repository is indistinguishable from one that doesn't
         exist at all, by design (see docs/architecture/05-knowledge-graph.md,
-        "Security" / cross-repository query attempts)."""
+        "Security" / cross-repository query attempts).
+
+        `kind` optionally restricts which relationship type connects a
+        neighbor — added in Phase 6 (docs/architecture/06-code-intelligence.md)
+        to support dependency/dependent exploration filtered by relationship
+        kind, without a second single-hop traversal query. `None` (the
+        default) preserves Phase 5's original behavior of returning every
+        adjacent relationship regardless of type."""
         ...
 
     async def is_available(self) -> bool:

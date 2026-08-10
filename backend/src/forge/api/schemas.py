@@ -211,3 +211,80 @@ class ProjectionSummaryResponse(BaseModel):
     node_count: int
     relationship_count: int
     projected_at: datetime
+
+
+class ImpactedNodeResponse(BaseModel):
+    """Wire format for one node in an `ImpactAnalysisResult`."""
+
+    node: GraphNodeResponse
+    depth: int
+    relationship_kind: str
+
+
+class ImpactAnalysisResponse(BaseModel):
+    """Wire format for `GET .../graph/nodes/{node_id}/impact`."""
+
+    starting_node_id: UUID
+    direction: str
+    max_depth: int
+    impacted_nodes: list[ImpactedNodeResponse]
+
+
+class DependencyPathResponse(BaseModel):
+    """Wire format for `GET .../graph/path`."""
+
+    source_id: UUID
+    target_id: UUID
+    found: bool
+    nodes: list[GraphNodeResponse]
+    relationships: list[GraphRelationshipResponse]
+    length: int | None
+
+
+class RelationshipKindCountResponse(BaseModel):
+    """Wire format for one entry of `GraphStatistics.relationships_by_kind`."""
+
+    kind: str
+    count: int
+
+
+class NodeDegreeResponse(BaseModel):
+    """Wire format for one node-plus-degree ranking entry."""
+
+    node: GraphNodeResponse
+    degree: int
+
+
+class GraphStatisticsResponse(BaseModel):
+    """Wire format for `GET .../graph/statistics`."""
+
+    repository_id: UUID
+    total_nodes: int
+    total_files: int
+    total_symbols: int
+    total_relationships: int
+    relationships_by_kind: list[RelationshipKindCountResponse]
+    highest_in_degree: list[NodeDegreeResponse]
+    highest_out_degree: list[NodeDegreeResponse]
+    projected_at: datetime | None
+    freshness: str
+    computed_at: datetime
+
+
+class MutualImportPairResponse(BaseModel):
+    """Wire format for one direct A<->B mutual-IMPORTS pair."""
+
+    file_a: GraphNodeResponse
+    file_b: GraphNodeResponse
+
+
+class GraphInsightsResponse(BaseModel):
+    """Wire format for `GET .../graph/insights`."""
+
+    repository_id: UUID
+    most_connected_files: list[NodeDegreeResponse]
+    dependency_hotspots: list[NodeDegreeResponse]
+    isolated_nodes: list[GraphNodeResponse]
+    mutual_import_pairs: list[MutualImportPairResponse]
+    unresolved_dependency_count: int
+    computed_at: datetime

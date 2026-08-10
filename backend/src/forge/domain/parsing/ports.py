@@ -17,6 +17,7 @@ Depended on by: application/parsing/service.py; implemented by
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
@@ -112,4 +113,12 @@ class ParsedFileRepository(Protocol):
     async def get_errors(self, repository_id: UUID) -> list[ParseError]:
         """Every recorded parse failure for `repository_id`'s most recent parse
         run."""
+        ...
+
+    async def get_last_parsed_at(self, repository_id: UUID) -> datetime | None:
+        """When `repository_id` was most recently parsed, or `None` if it has
+        never been parsed. Added in Phase 6 (docs/architecture/
+        06-code-intelligence.md, "Graph freshness") — exposes the
+        already-stored `parsed_files.parsed_at` column (present since Phase
+        3) through the domain port for the first time; no schema change."""
         ...

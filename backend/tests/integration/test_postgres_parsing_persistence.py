@@ -299,3 +299,49 @@ async def test_duplicate_symbol_names_in_different_files_persist_independently(
     assert len(symbols) == 2
     assert {s.name for s in symbols} == {"helper"}
     assert symbols[0].id != symbols[1].id
+
+
+@pytest.mark.asyncio
+async def test_get_last_parsed_at_returns_none_before_any_parse(
+    session: AsyncSession, repository_id: UUID
+) -> None:
+    """Added in Phase 6 (docs/architecture/06-code-intelligence.md, "Graph
+    freshness") — exposes the already-stored `parsed_files.parsed_at` column
+    through the domain port for the first time."""
+    repo = SqlAlchemyParsedFileRepository(session)
+
+    assert await repo.get_last_parsed_at(repository_id) is None
+
+
+@pytest.mark.asyncio
+async def test_get_last_parsed_at_returns_the_parse_timestamp(
+    session: AsyncSession, repository_id: UUID
+) -> None:
+    repo = SqlAlchemyParsedFileRepository(session)
+    result = _sample_result(repository_id)
+
+    await repo.save_parse_result(result)
+
+    last_parsed_at = await repo.get_last_parsed_at(repository_id)
+    assert last_parsed_at is not None
+    assert last_parsed_at == result.parsed_at
+
+
+@pytest.mark.asyncio
+async def test_get_last_parsed_at_reflects_the_most_recent_reparse(
+    session: AsyncSession, repository_id: UUID
+) -> None:
+    repo = SqlAlchemyParsedFileRepository(session)
+    first = _sample_result(repository_id)
+    await repo.save_parse_result(first)
+
+    second = ParseResult(
+        repository_id=repository_id,
+        files=first.files,
+        errors=(),
+        parsed_at=datetime.now(UTC),
+    )
+    await repo.save_parse_result(second)
+
+    last_parsed_at = await repo.get_last_parsed_at(repository_id)
+    assert last_parsed_at == second.parsed_at

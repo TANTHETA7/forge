@@ -120,7 +120,7 @@ async def list_graph_dependencies(
     relationships = await service.get_relationships(
         repository_id, kind=kind, limit=limit, offset=offset
     )
-    return [_to_relationship_response(r) for r in relationships]
+    return [to_relationship_response(r) for r in relationships]
 
 
 @router.get("/graph/neighbors/{node_id}", response_model=list[GraphNeighborResponse])
@@ -160,7 +160,11 @@ def _to_node_response(node: GraphNode) -> GraphNodeResponse:
     )
 
 
-def _to_relationship_response(relationship: GraphRelationship) -> GraphRelationshipResponse:
+def to_relationship_response(relationship: GraphRelationship) -> GraphRelationshipResponse:
+    """Module-level (not private) so api/graph_intelligence.py (Phase 6) can
+    reuse it for `DependencyPathResponse.relationships` rather than
+    duplicating the same `GraphRelationship`->`GraphRelationshipResponse`
+    mapping."""
     return GraphRelationshipResponse(
         source_id=relationship.source_id,
         target_id=relationship.target_id,

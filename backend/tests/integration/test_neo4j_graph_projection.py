@@ -220,6 +220,40 @@ async def test_get_neighbors_returns_connected_nodes(session: AsyncSession) -> N
     assert {n.node.id for n in both} == {repository_id, file_b.id}
 
 
+async def test_get_neighbors_filters_by_relationship_kind(session: AsyncSession) -> None:
+    """Added in Phase 6 (docs/architecture/06-code-intelligence.md) to
+    support kind-filtered dependency/dependent exploration without a second
+    traversal query — `kind=None` (the default) preserves Phase 5's
+    original unfiltered behavior, verified in the "both" branch below."""
+    repo = Neo4jGraphRepository(session)
+    repository_id = uuid4()
+    file_a = _file_node(repository_id, "a.py")
+    file_b = _file_node(repository_id, "b.py")
+    await repo.project_repository(
+        repository_id,
+        (_repository_node(repository_id), file_a, file_b),
+        (
+            _contains(repository_id, repository_id, file_a.id),
+            _imports(repository_id, file_a.id, file_b.id, uuid4()),
+        ),
+    )
+
+    imports_only = await repo.get_neighbors(
+        repository_id, file_a.id, direction="outgoing", kind=GraphRelationshipKind.IMPORTS
+    )
+    assert imports_only is not None
+    assert [n.node.id for n in imports_only] == [file_b.id]
+
+    contains_only = await repo.get_neighbors(
+        repository_id, file_a.id, direction="outgoing", kind=GraphRelationshipKind.CONTAINS
+    )
+    assert contains_only == []  # file_a has no outgoing CONTAINS relationship
+
+    unfiltered = await repo.get_neighbors(repository_id, file_a.id, direction="outgoing")
+    assert unfiltered is not None
+    assert [n.node.id for n in unfiltered] == [file_b.id]  # kind=None: unchanged behavior
+
+
 async def test_is_available_reports_true_against_real_neo4j(session: AsyncSession) -> None:
     repo = Neo4jGraphRepository(session)
     assert await repo.is_available() is True
@@ -237,3 +271,19 @@ async def test_deterministic_ids_are_stable_across_runs(session: AsyncSession) -
     assert first.node_count == second.node_count
     persisted = await repo.get_nodes(repository_id)
     assert {n.id for n in persisted} == {repository_id, file_a.id}
+
+
+async def test_projected_at_is_stamped_on_the_repository_node(session: AsyncSession) -> None:
+    """Added in Phase 6 (docs/architecture/06-code-intelligence.md, "Graph
+    freshness") — a small, additive Phase 5 touch: `project_repository`
+    writes when it ran onto the `:Repository` node so a later statistics
+    query can tell whether the graph is current relative to PostgreSQL."""
+    repo = Neo4jGraphRepository(session)
+    repository_id = uuid4()
+
+    result = await repo.project_repository(repository_id, (_repository_node(repository_id),), ())
+
+    [repository_node] = await repo.get_nodes(repository_id, kind=GraphNodeKind.REPOSITORY)
+    stored = repository_node.properties["projected_at"]
+    assert isinstance(stored, str)
+    assert stored == result.projected_at.isoformat()

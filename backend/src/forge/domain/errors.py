@@ -57,3 +57,12 @@ class ParseFailure(ForgeError):
 class UnsupportedRepositoryStateError(ForgeError):
     """Raised when an operation is requested against a `Repository` whose current
     `status` doesn't support it — e.g. parsing a repository that isn't `READY`."""
+
+
+class GraphUnavailableError(ForgeError):
+    """Raised when a Neo4j graph operation (Phase 5) can't reach or complete
+    against Neo4j — connection refused, authentication failure, or the
+    connection dropping mid-operation. Translated from `neo4j.exceptions`
+    types by `infrastructure/graph/neo4j_graph_repository.py`; a raw driver
+    exception never crosses out of infrastructure (see
+    docs/architecture/05-knowledge-graph.md, "Failure handling")."""

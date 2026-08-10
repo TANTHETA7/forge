@@ -174,3 +174,40 @@ class DependencyAnalysisSummaryResponse(BaseModel):
     ambiguous_count: int
     unresolved_count: int
     analyzed_at: datetime
+
+
+class GraphNodeResponse(BaseModel):
+    """Wire format for a `GraphNode`."""
+
+    id: UUID
+    kind: str
+    repository_id: UUID
+    properties: dict[str, str | int | bool | None]
+
+
+class GraphRelationshipResponse(BaseModel):
+    """Wire format for a `GraphRelationship`."""
+
+    source_id: UUID
+    target_id: UUID
+    kind: str
+    repository_id: UUID
+    dependency_edge_id: UUID | None
+    properties: dict[str, str | int | bool | None]
+
+
+class GraphNeighborResponse(BaseModel):
+    """Wire format for one neighbor returned by `GET .../graph/neighbors/{node_id}`."""
+
+    node: GraphNodeResponse
+    relationship_kind: str
+    direction: str
+
+
+class ProjectionSummaryResponse(BaseModel):
+    """Wire format for `POST .../graph/project`."""
+
+    repository_id: UUID
+    node_count: int
+    relationship_count: int
+    projected_at: datetime

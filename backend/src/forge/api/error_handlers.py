@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from forge.api.schemas import ErrorResponse
 from forge.domain.errors import (
     ForgeError,
+    GraphUnavailableError,
     NotFoundError,
     SourceImportError,
     SourceValidationError,
@@ -40,6 +41,7 @@ _STATUS_BY_ERROR: list[tuple[type[ForgeError], int]] = [
     (ValidationError, status.HTTP_400_BAD_REQUEST),
     (SourceImportError, status.HTTP_422_UNPROCESSABLE_CONTENT),
     (UnsupportedRepositoryStateError, status.HTTP_409_CONFLICT),
+    (GraphUnavailableError, status.HTTP_503_SERVICE_UNAVAILABLE),
     (WorkspaceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
 ]
 

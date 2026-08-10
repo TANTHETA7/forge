@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from forge.api.dependencies import router as dependencies_router
 from forge.api.error_handlers import register_error_handlers
+from forge.api.graph import router as graph_router
 from forge.api.health import router as health_router
 from forge.api.parsing import router as parsing_router
 from forge.api.projects import router as projects_router
@@ -59,5 +60,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(repositories_router, prefix=settings.api_v1_prefix)
     app.include_router(parsing_router, prefix=settings.api_v1_prefix)
     app.include_router(dependencies_router, prefix=settings.api_v1_prefix)
+    app.include_router(graph_router, prefix=settings.api_v1_prefix)
 
     return app

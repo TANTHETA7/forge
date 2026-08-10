@@ -1,22 +1,32 @@
-"""In-memory fakes for the Phase 2/3/4 persistence ports.
+"""In-memory fakes for the Phase 2/3/4/5 persistence ports.
 
 Purpose: Let unit/integration tests exercise application services and API routes
 against real port contracts (`ProjectRepository`, `RepositoryRepository`,
-`ParsedFileRepository`, `DependencyEdgeRepository`) without a live Postgres —
-real-Postgres coverage for the SQLAlchemy implementations lives in
-tests/integration/test_postgres_persistence.py,
-test_postgres_parsing_persistence.py, and
-test_postgres_dependency_persistence.py instead.
+`ParsedFileRepository`, `DependencyEdgeRepository`, `GraphRepository`) without
+a live Postgres/Neo4j — real-backend coverage for the concrete implementations
+lives in tests/integration/test_postgres_persistence.py,
+test_postgres_parsing_persistence.py, test_postgres_dependency_persistence.py,
+and test_neo4j_graph_projection.py instead.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from forge.domain.dependency_analysis.entities import (
     DependencyEdge,
     DependencyKind,
     ResolutionStatus,
+)
+from forge.domain.graph.entities import (
+    GraphNeighbor,
+    GraphNode,
+    GraphNodeKind,
+    GraphRelationship,
+    GraphRelationshipKind,
+    ProjectionResult,
 )
 from forge.domain.parsing.entities import ParsedFile, ParseError, ParseResult, Symbol, SymbolKind
 from forge.domain.project.entities import Project
@@ -139,3 +149,89 @@ class InMemoryDependencyEdgeRepository:
                 if edge.id == dependency_id:
                     return edge
         return None
+
+
+class InMemoryGraphRepository:
+    """Mirrors `Neo4jGraphRepository`'s replace-on-reproject semantics —
+    `project_repository` discards any previous graph for the same
+    repository. `available` is a plain public attribute a test can flip to
+    simulate Neo4j being unreachable."""
+
+    def __init__(self, *, available: bool = True) -> None:
+        self._nodes: dict[UUID, tuple[GraphNode, ...]] = {}
+        self._relationships: dict[UUID, tuple[GraphRelationship, ...]] = {}
+        self.available = available
+
+    async def project_repository(
+        self,
+        repository_id: UUID,
+        nodes: tuple[GraphNode, ...],
+        relationships: tuple[GraphRelationship, ...],
+    ) -> ProjectionResult:
+        self._nodes[repository_id] = nodes
+        self._relationships[repository_id] = relationships
+        return ProjectionResult(
+            repository_id=repository_id,
+            node_count=len(nodes),
+            relationship_count=len(relationships),
+            projected_at=datetime.now(UTC),
+        )
+
+    async def get_nodes(
+        self,
+        repository_id: UUID,
+        *,
+        kind: GraphNodeKind | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[GraphNode]:
+        nodes = [n for n in self._nodes.get(repository_id, ()) if kind is None or n.kind is kind]
+        return nodes[offset : offset + limit]
+
+    async def get_relationships(
+        self,
+        repository_id: UUID,
+        *,
+        kind: GraphRelationshipKind | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[GraphRelationship]:
+        relationships = [
+            r for r in self._relationships.get(repository_id, ()) if kind is None or r.kind is kind
+        ]
+        return relationships[offset : offset + limit]
+
+    async def get_neighbors(
+        self,
+        repository_id: UUID,
+        node_id: UUID,
+        *,
+        direction: Literal["incoming", "outgoing", "both"] = "both",
+        limit: int = 100,
+    ) -> list[GraphNeighbor] | None:
+        nodes_by_id = {node.id: node for node in self._nodes.get(repository_id, ())}
+        if node_id not in nodes_by_id:
+            return None
+
+        neighbors: list[GraphNeighbor] = []
+        for relationship in self._relationships.get(repository_id, ()):
+            if relationship.source_id == node_id and direction in ("outgoing", "both"):
+                target = nodes_by_id.get(relationship.target_id)
+                if target is not None:
+                    neighbors.append(
+                        GraphNeighbor(
+                            node=target, relationship_kind=relationship.kind, direction="outgoing"
+                        )
+                    )
+            if relationship.target_id == node_id and direction in ("incoming", "both"):
+                source = nodes_by_id.get(relationship.source_id)
+                if source is not None:
+                    neighbors.append(
+                        GraphNeighbor(
+                            node=source, relationship_kind=relationship.kind, direction="incoming"
+                        )
+                    )
+        return neighbors[:limit]
+
+    async def is_available(self) -> bool:
+        return self.available

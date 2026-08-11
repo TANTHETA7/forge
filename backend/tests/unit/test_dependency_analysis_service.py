@@ -239,6 +239,94 @@ async def test_reanalysis_replaces_previous_edges() -> None:
     assert len(persisted) == 1  # not duplicated
 
 
+async def test_two_identical_imports_at_an_identical_location_get_distinct_edge_ids() -> None:
+    # The edge id is derived from repository/source_file/module-text/location
+    # — all of which are identical between two occurrences of the exact same
+    # import statement repeated verbatim (a real, if unusual, source pattern,
+    # and a stand-in for any parser quirk that reports an identical location
+    # for two distinct occurrences). Without `occurrence_index` — this
+    # import's own ordinal position within `source_file.imports`, guaranteed
+    # to differ between the two — both would hash to the *same* id and
+    # silently collapse into a single persisted edge.
+    service, repositories, parsed_files, _ = _service()
+    repository = await _seed_ready_repository(repositories)
+
+    utils_file = _python_file("pkg/utils.py")
+    main_file = _python_file(
+        "pkg/main.py",
+        imports=(
+            Import(
+                id=uuid4(), module=".utils", imported_names=(), alias=None, location=_LOCATION
+            ),
+            Import(
+                id=uuid4(), module=".utils", imported_names=(), alias=None, location=_LOCATION
+            ),
+        ),
+    )
+    await parsed_files.save_parse_result(
+        ParseResult(
+            repository_id=repository.id,
+            files=(main_file, utils_file),
+            errors=(),
+            parsed_at=datetime.now(UTC),
+        )
+    )
+
+    result = await service.analyze_repository(repository.id)
+
+    import_edges = [e for e in result.edges if e.kind.value == "imports"]
+    assert len(import_edges) == 2
+    assert import_edges[0].id != import_edges[1].id  # never collide despite identical id inputs
+    assert all(e.raw_target_expression == ".utils" for e in import_edges)
+    assert all(e.resolution_status is ResolutionStatus.RESOLVED for e in import_edges)
+
+
+async def test_two_identical_calls_at_an_identical_location_get_distinct_edge_ids() -> None:
+    # Same collision-protection guarantee as the imports case above, for
+    # CALLS edges — the same caller symbol issuing the exact same call twice
+    # (e.g. `helper(); helper()`) at an identical SourceLocation must not
+    # collapse into one persisted edge.
+    service, repositories, parsed_files, _ = _service()
+    repository = await _seed_ready_repository(repositories)
+
+    helper = Symbol(
+        id=uuid4(),
+        kind=SymbolKind.FUNCTION,
+        name="helper",
+        qualified_name="helper",
+        location=_LOCATION,
+        parameters=(),
+        parent_symbol_id=None,
+    )
+    caller = Symbol(
+        id=uuid4(),
+        kind=SymbolKind.FUNCTION,
+        name="main",
+        qualified_name="main",
+        location=_LOCATION,
+        parameters=(),
+        parent_symbol_id=None,
+        calls=(
+            CallReference(callee_expression="helper", location=_LOCATION),
+            CallReference(callee_expression="helper", location=_LOCATION),
+        ),
+    )
+    file = _python_file("main.py", symbols=(caller, helper))
+    await parsed_files.save_parse_result(
+        ParseResult(
+            repository_id=repository.id, files=(file,), errors=(), parsed_at=datetime.now(UTC)
+        )
+    )
+
+    result = await service.analyze_repository(repository.id)
+
+    call_edges = [e for e in result.edges if e.kind.value == "calls"]
+    assert len(call_edges) == 2
+    assert call_edges[0].id != call_edges[1].id  # never collide despite identical id inputs
+    assert all(e.raw_target_expression == "helper" for e in call_edges)
+    assert all(e.resolution_status is ResolutionStatus.RESOLVED for e in call_edges)
+
+
 async def test_resolves_a_function_call_between_two_files() -> None:
     service, repositories, parsed_files, _ = _service()
     repository = await _seed_ready_repository(repositories)

@@ -122,6 +122,82 @@ def test_unresolved_when_no_definition_or_import_matches() -> None:
     assert result.detail is not None
 
 
+def test_resolves_bare_call_to_a_class_constructor() -> None:
+    # A bare call like `Settings()` or `NotFoundError()` is a constructor
+    # call — the callee names a CLASS symbol, not a FUNCTION. Bare-name
+    # resolution checks FUNCTION first, then falls back to CLASS, so this
+    # must resolve rather than come back UNRESOLVED.
+    target = _symbol("Settings", SymbolKind.CLASS)
+    caller = _symbol("main", SymbolKind.FUNCTION, calls=(CallReference("Settings", _LOCATION),))
+    file = _file("main.py", symbols=(caller, target))
+
+    result = _resolver().resolve_call(caller.calls[0], caller, file, [file])
+
+    assert result.status is ResolutionStatus.RESOLVED
+    assert result.target_symbol_id == target.id
+
+
+def test_resolves_bare_call_to_an_imported_class_constructor() -> None:
+    # The realistic shape: `from .errors import NotFoundError` then
+    # `raise NotFoundError(...)` — the class is defined in a different file
+    # and reached through an explicit import, exactly like the imported
+    # FUNCTION case above but for a CLASS target.
+    target = _symbol("NotFoundError", SymbolKind.CLASS)
+    errors_file = _file("errors.py", symbols=(target,))
+    caller = _symbol(
+        "main", SymbolKind.FUNCTION, calls=(CallReference("NotFoundError", _LOCATION),)
+    )
+    main_file = _file(
+        "main.py", symbols=(caller,), imports=(_import(".errors", ("NotFoundError",)),)
+    )
+
+    result = _resolver().resolve_call(
+        caller.calls[0], caller, main_file, [main_file, errors_file]
+    )
+
+    assert result.status is ResolutionStatus.RESOLVED
+    assert result.target_symbol_id == target.id
+    assert result.target_file_id == errors_file.id
+
+
+def test_bare_call_prefers_function_over_class_when_both_share_a_name() -> None:
+    # FUNCTION is checked before CLASS (see SymbolDependencyResolver.resolve_call).
+    # If both a function and a class with the same name exist, the function
+    # wins — an unusual case, but the ordering is deliberate and worth
+    # pinning down explicitly.
+    function_target = _symbol("Widget", SymbolKind.FUNCTION)
+    class_target = _symbol("Widget", SymbolKind.CLASS)
+    caller = _symbol("main", SymbolKind.FUNCTION, calls=(CallReference("Widget", _LOCATION),))
+    file = _file("main.py", symbols=(caller, function_target, class_target))
+
+    result = _resolver().resolve_call(caller.calls[0], caller, file, [file])
+
+    assert result.status is ResolutionStatus.RESOLVED
+    assert result.target_symbol_id == function_target.id
+
+
+def test_bare_call_class_lookup_is_tried_only_when_function_lookup_fails() -> None:
+    # If the FUNCTION lookup is itself AMBIGUOUS (two wildcard imports both
+    # define a same-named function), that ambiguity must be preserved as the
+    # final result — not masked by also trying, and failing, a CLASS lookup.
+    a_symbol = _symbol("Thing", SymbolKind.FUNCTION)
+    b_symbol = _symbol("Thing", SymbolKind.FUNCTION)
+    a_file = _file("a.py", symbols=(a_symbol,))
+    b_file = _file("b.py", symbols=(b_symbol,))
+    caller = _symbol("main", SymbolKind.FUNCTION, calls=(CallReference("Thing", _LOCATION),))
+    main_file = _file(
+        "main.py",
+        symbols=(caller,),
+        imports=(_import(".a", ("*",)), _import(".b", ("*",))),
+    )
+
+    result = _resolver().resolve_call(
+        caller.calls[0], caller, main_file, [main_file, a_file, b_file]
+    )
+
+    assert result.status is ResolutionStatus.AMBIGUOUS
+
+
 def test_ambiguous_when_two_wildcard_imports_both_define_the_same_name() -> None:
     a_symbol = _symbol("helper", SymbolKind.FUNCTION)
     b_symbol = _symbol("helper", SymbolKind.FUNCTION)

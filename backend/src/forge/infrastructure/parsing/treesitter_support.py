@@ -132,65 +132,92 @@ def extract_symbols(
     spec: SymbolExtractionSpec,
     name_field: str = "name",
 ) -> tuple[Symbol, ...]:
-    """Walk `root`, producing one `Symbol` per class/function/method-kind node
-    `spec` recognizes, in source order.
+    """Walk `root`, producing one `Symbol` per class/function/method-kind node.
 
-    A function-kind node found while the walk is inside a class body is recorded
-    as `METHOD` (with `parent_symbol_id` set to that class's `Symbol.id`) even if
-    `spec.symbol_kind_for` reported plain `FUNCTION` for it — this is what lets
-    Python's single `function_definition` node type (used for both) come out
-    right without Python-specific logic here. A node `spec` already reports as
-    `METHOD` directly (JS/TS's `method_definition`) is left as-is.
+    Every nested symbol is qualified by its enclosing symbol. This keeps
+    deterministic IDs unique for nested functions/classes while preserving
+    the distinction between Python methods and nested functions.
     """
+
     symbols: list[Symbol] = []
 
-    def walk(node: Node, enclosing: tuple[UUID, str] | None) -> None:
+    # (symbol_id, qualified_name, is_class)
+    Enclosing = tuple[UUID, str, bool]
+
+    def walk(node: Node, enclosing: Enclosing | None) -> None:
         kind = spec.symbol_kind_for(node.type)
         next_enclosing = enclosing
 
         if kind is not None:
             name_node = node.child_by_field_name(name_field)
             name = text_of(name_node) if name_node is not None else None
+
             if name:
                 effective_kind = kind
-                if kind is SymbolKind.FUNCTION and enclosing is not None:
+
+                # A Python function directly inside a class is a METHOD.
+                # A function nested inside a method/function is still a FUNCTION.
+                if (
+                    kind is SymbolKind.FUNCTION
+                    and enclosing is not None
+                    and enclosing[2]
+                ):
                     effective_kind = SymbolKind.METHOD
 
                 parent_id: UUID | None = None
                 qualified_name = name
-                if enclosing is not None and effective_kind is not SymbolKind.CLASS:
-                    parent_id, parent_qualified_name = enclosing
+
+                if enclosing is not None:
+                    parent_id, parent_qualified_name, _ = enclosing
                     qualified_name = f"{parent_qualified_name}.{name}"
 
+                # Include source location in the deterministic ID so that
+                # multiple same-named definitions in the same lexical scope
+                # remain distinct.
+                location = location_of(node)
+
                 symbol_id = deterministic_id(
-                    str(repository_id), file_path, qualified_name, effective_kind.value
+                    str(repository_id),
+                    file_path,
+                    qualified_name,
+                    effective_kind.value,
+                    str(location.start_line),
+                    str(location.start_column),
                 )
+
                 is_class = effective_kind is SymbolKind.CLASS
-                parameters = () if is_class else spec.extract_parameters(node)
-                base_class_names = spec.extract_base_classes(node) if is_class else ()
+                parameters = (
+                    () if is_class else spec.extract_parameters(node)
+                )
+                base_class_names = (
+                    spec.extract_base_classes(node) if is_class else ()
+                )
                 calls = () if is_class else spec.extract_calls(node)
+
                 symbols.append(
                     Symbol(
                         id=symbol_id,
                         kind=effective_kind,
                         name=name,
                         qualified_name=qualified_name,
-                        location=location_of(node),
+                        location=location,
                         parameters=parameters,
                         parent_symbol_id=parent_id,
                         base_class_names=base_class_names,
                         calls=calls,
                     )
                 )
-                if effective_kind is SymbolKind.CLASS:
-                    next_enclosing = (symbol_id, qualified_name)
+
+                # Track EVERY symbol, not just classes.
+                # The bool tells us whether a directly nested Python function
+                # should be classified as a METHOD.
+                next_enclosing = (symbol_id, qualified_name, is_class)
 
         for child in node.children:
             walk(child, next_enclosing)
 
     walk(root, None)
     return tuple(symbols)
-
 
 def find_within_excluding(
     node: Node, target_types: frozenset[str], boundary_types: frozenset[str]

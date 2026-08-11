@@ -45,6 +45,20 @@ def test_extracts_class_and_its_methods_with_parent_link() -> None:
     assert {m.name for m in methods} == {"method_a", "method_b"}
 
 
+def test_nested_class_is_parented_and_qualified_by_its_enclosing_class() -> None:
+    # A class nested directly inside another class must be linked to it via
+    # parent_symbol_id and qualified accordingly — the same enclosing-symbol
+    # tracking that already applies to methods and nested functions.
+    result = _parse("class Outer:\n    class Inner:\n        pass\n")
+
+    outer = next(s for s in result.symbols if s.name == "Outer")
+    inner = next(s for s in result.symbols if s.name == "Inner")
+
+    assert inner.kind is SymbolKind.CLASS
+    assert inner.parent_symbol_id == outer.id
+    assert inner.qualified_name == "Outer.Inner"
+
+
 def test_extracts_parameters_with_annotations_and_defaults() -> None:
     result = _parse(
         "def f(a, b: int, c=1, d: str = 'x', *args, **kwargs):\n    pass\n"
@@ -198,6 +212,49 @@ def test_nested_function_calls_are_not_double_counted() -> None:
 
     assert [c.callee_expression for c in outer.calls] == ["outer_call"]
     assert [c.callee_expression for c in inner.calls] == ["inner_call"]
+
+
+def test_nested_function_is_parented_and_qualified_by_its_enclosing_function() -> None:
+    # A function nested inside another function (not a class) is still a
+    # FUNCTION, not a METHOD — but it must be linked to, and qualified by,
+    # its enclosing function, the same way a method is linked to its class.
+    source = "def outer():\n    def inner():\n        pass\n    return inner\n"
+    result = _parse(source)
+    outer = next(s for s in result.symbols if s.name == "outer")
+    inner = next(s for s in result.symbols if s.name == "inner")
+
+    assert inner.kind is SymbolKind.FUNCTION  # not METHOD — only class-nesting does that
+    assert inner.parent_symbol_id == outer.id
+    assert inner.qualified_name == "outer.inner"
+
+
+def test_same_named_nested_functions_in_different_outer_functions_get_distinct_ids() -> None:
+    # Two lexically identical nested functions (same name, same shape) in
+    # two different enclosing functions are genuinely distinct symbols and
+    # must never collide on id — the deterministic id includes each symbol's
+    # own source location precisely so that same-qualified-name symbols
+    # elsewhere still resolve to different ids.
+    source = (
+        "def outer():\n"
+        "    def inner():\n"
+        "        pass\n"
+        "    return inner\n"
+        "\n"
+        "def outer2():\n"
+        "    def inner():\n"
+        "        pass\n"
+        "    return inner\n"
+    )
+    result = _parse(source)
+    inners = [s for s in result.symbols if s.name == "inner"]
+
+    assert len(result.symbols) == 4  # outer, inner, outer2, inner — none lost to a collision
+    assert len(inners) == 2
+    assert inners[0].id != inners[1].id
+    assert {s.parent_symbol_id for s in inners} == {
+        next(s for s in result.symbols if s.name == "outer").id,
+        next(s for s in result.symbols if s.name == "outer2").id,
+    }
 
 
 def test_calls_inside_a_nested_class_belong_to_that_class_not_the_enclosing_function() -> None:

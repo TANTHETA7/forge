@@ -41,6 +41,18 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Defense-in-depth: `testpaths` already scopes default collection to `tests/`
+# alone, but `data/` (application-generated repository workspaces — see
+# core/config.py's `workspace_root_dir`, default "./data/workspaces") can
+# itself contain an imported copy of an arbitrary repository, including
+# Forge's own (self-referential import for testing). If that copy happens to
+# contain a `tests/` package and pytest is ever pointed at a broader path
+# than `testpaths` (e.g. explicit `pytest .` from within backend/), it must
+# never be collected alongside Forge's own suite — a duplicate `tests.*`
+# module path against a different filesystem root raises
+# `ImportPathMismatchError`. `norecursedirs` guards this regardless of how
+# pytest is invoked.
+norecursedirs = ["data", ".git", ".venv", "node_modules"]
 
 [tool.ruff]
 line-length = 100

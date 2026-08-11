@@ -52,7 +52,13 @@ from forge.domain.dependency_analysis.ports import (
     ModuleResolver,
 )
 from forge.domain.errors import NotFoundError, UnsupportedRepositoryStateError
-from forge.domain.parsing.entities import CallReference, Import, ParsedFile, Symbol, SymbolKind
+from forge.domain.parsing.entities import (
+    CallReference,
+    Import,
+    ParsedFile,
+    Symbol,
+    SymbolKind,
+)
 from forge.domain.parsing.ports import ParsedFileRepository
 from forge.domain.repository.entities import RepositoryStatus
 from forge.domain.repository.ports import RepositoryRepository
@@ -76,24 +82,32 @@ class DependencyAnalysisService:
         self._module_resolver = module_resolver
         self._symbol_resolver = symbol_resolver
 
-    async def analyze_repository(self, repository_id: UUID) -> DependencyAnalysisResult:
+    async def analyze_repository(
+        self,
+        repository_id: UUID,
+    ) -> DependencyAnalysisResult:
         """Run dependency analysis and return (and persist) the result.
 
         Raises:
             NotFoundError: `repository_id` doesn't exist.
             UnsupportedRepositoryStateError: the repository isn't `READY`, or
-                is `READY` but has no parsed files yet (Phase 3's `/parse`
-                hasn't run) — there is nothing to analyze.
+                is `READY` but has no parsed files yet.
         """
         repository = await self._repositories.get_by_id(repository_id)
+
         if repository is None:
-            raise NotFoundError(f"Repository {repository_id} not found")
+            raise NotFoundError(
+                f"Repository {repository_id} not found"
+            )
+
         if repository.status is not RepositoryStatus.READY:
             raise UnsupportedRepositoryStateError(
-                f"Repository {repository_id} is {repository.status.value!r}, not READY"
+                f"Repository {repository_id} is "
+                f"{repository.status.value!r}, not READY"
             )
 
         files = await self._parsed_files.get_files(repository_id)
+
         if not files:
             raise UnsupportedRepositoryStateError(
                 f"Repository {repository_id} has not been parsed yet — run "
@@ -101,27 +115,64 @@ class DependencyAnalysisService:
             )
 
         edges: list[DependencyEdge] = []
+
         for source_file in files:
-            for import_ in source_file.imports:
-                edges.append(self._resolve_import(repository_id, source_file, import_, files))
+            # ---------------------------------------------------------
+            # IMPORTS
+            # ---------------------------------------------------------
+            for import_index, import_ in enumerate(source_file.imports):
+                edges.append(
+                    self._resolve_import(
+                        repository_id,
+                        source_file,
+                        import_,
+                        files,
+                        occurrence_index=import_index,
+                    )
+                )
+
+            # ---------------------------------------------------------
+            # CALLS / INHERITS
+            # ---------------------------------------------------------
             for symbol in source_file.symbols:
                 if symbol.kind is SymbolKind.CLASS:
-                    for base_class_name in symbol.base_class_names:
+                    for inheritance_index, base_class_name in enumerate(
+                        symbol.base_class_names
+                    ):
                         edges.append(
                             self._resolve_inheritance(
-                                repository_id, source_file, symbol, base_class_name, files
+                                repository_id,
+                                source_file,
+                                symbol,
+                                base_class_name,
+                                files,
+                                occurrence_index=inheritance_index,
                             )
                         )
                 else:
-                    for call in symbol.calls:
+                    for call_index, call in enumerate(symbol.calls):
                         edges.append(
-                            self._resolve_call(repository_id, source_file, symbol, call, files)
+                            self._resolve_call(
+                                repository_id,
+                                source_file,
+                                symbol,
+                                call,
+                                files,
+                                occurrence_index=call_index,
+                            )
                         )
 
         result = DependencyAnalysisResult(
-            repository_id=repository_id, edges=tuple(edges), analyzed_at=datetime.now(UTC)
+            repository_id=repository_id,
+            edges=tuple(edges),
+            analyzed_at=datetime.now(UTC),
         )
-        await self._dependency_edges.save_analysis_result(repository_id, result.edges)
+
+        await self._dependency_edges.save_analysis_result(
+            repository_id,
+            result.edges,
+        )
+
         return result
 
     def _resolve_import(
@@ -130,15 +181,25 @@ class DependencyAnalysisService:
         source_file: ParsedFile,
         import_: Import,
         all_files: list[ParsedFile],
+        *,
+        occurrence_index: int = 0,
     ) -> DependencyEdge:
         try:
-            resolution = self._module_resolver.resolve_import(import_, source_file, all_files)
-        except Exception as exc:  # a resolver bug for one import must not abort
-            # the rest of the repository — see this module's own docstring.
+            resolution = self._module_resolver.resolve_import(
+                import_,
+                source_file,
+                all_files,
+            )
+        except Exception as exc:
+            # A resolver failure for one import must not abort
+            # dependency analysis for the entire repository.
             resolution = ModuleResolution(
                 status=ResolutionStatus.UNRESOLVED,
                 target_file_id=None,
-                detail=f"unexpected failure while resolving {import_.module!r}: {exc}",
+                detail=(
+                    f"unexpected failure while resolving "
+                    f"{import_.module!r}: {exc}"
+                ),
             )
 
         edge_id = deterministic_id(
@@ -147,7 +208,12 @@ class DependencyAnalysisService:
             str(source_file.id),
             import_.module,
             str(import_.location.start_line),
+            str(import_.location.end_line),
+            str(import_.location.start_column),
+            str(import_.location.end_column),
+            str(occurrence_index),
         )
+
         return DependencyEdge(
             id=edge_id,
             repository_id=repository_id,
@@ -169,16 +235,27 @@ class DependencyAnalysisService:
         caller: Symbol,
         call: CallReference,
         all_files: list[ParsedFile],
+        *,
+        occurrence_index: int = 0,
     ) -> DependencyEdge:
         try:
-            resolution = self._symbol_resolver.resolve_call(call, caller, source_file, all_files)
-        except Exception as exc:  # a resolver bug for one call must not abort
-            # the rest of the repository — see this module's own docstring.
+            resolution = self._symbol_resolver.resolve_call(
+                call,
+                caller,
+                source_file,
+                all_files,
+            )
+        except Exception as exc:
+            # A resolver failure for one call must not abort
+            # dependency analysis for the entire repository.
             resolution = SymbolResolution(
                 status=ResolutionStatus.UNRESOLVED,
                 target_file_id=None,
                 target_symbol_id=None,
-                detail=f"unexpected failure while resolving {call.callee_expression!r}: {exc}",
+                detail=(
+                    f"unexpected failure while resolving "
+                    f"{call.callee_expression!r}: {exc}"
+                ),
             )
 
         edge_id = deterministic_id(
@@ -187,7 +264,12 @@ class DependencyAnalysisService:
             str(caller.id),
             call.callee_expression,
             str(call.location.start_line),
+            str(call.location.end_line),
+            str(call.location.start_column),
+            str(call.location.end_column),
+            str(occurrence_index),
         )
+
         return DependencyEdge(
             id=edge_id,
             repository_id=repository_id,
@@ -209,18 +291,26 @@ class DependencyAnalysisService:
         subclass: Symbol,
         base_class_name: str,
         all_files: list[ParsedFile],
+        *,
+        occurrence_index: int = 0,
     ) -> DependencyEdge:
         try:
             resolution = self._symbol_resolver.resolve_inheritance(
-                base_class_name, source_file, all_files
+                base_class_name,
+                source_file,
+                all_files,
             )
-        except Exception as exc:  # a resolver bug for one base class must not
-            # abort the rest of the repository — see this module's own docstring.
+        except Exception as exc:
+            # A resolver failure for one base class must not abort
+            # dependency analysis for the entire repository.
             resolution = SymbolResolution(
                 status=ResolutionStatus.UNRESOLVED,
                 target_file_id=None,
                 target_symbol_id=None,
-                detail=f"unexpected failure while resolving {base_class_name!r}: {exc}",
+                detail=(
+                    f"unexpected failure while resolving "
+                    f"{base_class_name!r}: {exc}"
+                ),
             )
 
         edge_id = deterministic_id(
@@ -229,7 +319,12 @@ class DependencyAnalysisService:
             str(subclass.id),
             base_class_name,
             str(subclass.location.start_line),
+            str(subclass.location.end_line),
+            str(subclass.location.start_column),
+            str(subclass.location.end_column),
+            str(occurrence_index),
         )
+
         return DependencyEdge(
             id=edge_id,
             repository_id=repository_id,
@@ -256,6 +351,7 @@ class DependencyAnalysisService:
         offset: int = 0,
     ) -> list[DependencyEdge]:
         await self._require_repository(repository_id)
+
         return await self._dependency_edges.get_edges(
             repository_id,
             kind=kind,
@@ -266,12 +362,26 @@ class DependencyAnalysisService:
             offset=offset,
         )
 
-    async def get_edge(self, dependency_id: UUID) -> DependencyEdge:
-        edge = await self._dependency_edges.get_edge(dependency_id)
+    async def get_edge(
+        self,
+        dependency_id: UUID,
+    ) -> DependencyEdge:
+        edge = await self._dependency_edges.get_edge(
+            dependency_id
+        )
+
         if edge is None:
-            raise NotFoundError(f"Dependency edge {dependency_id} not found")
+            raise NotFoundError(
+                f"Dependency edge {dependency_id} not found"
+            )
+
         return edge
 
-    async def _require_repository(self, repository_id: UUID) -> None:
+    async def _require_repository(
+        self,
+        repository_id: UUID,
+    ) -> None:
         if await self._repositories.get_by_id(repository_id) is None:
-            raise NotFoundError(f"Repository {repository_id} not found")
+            raise NotFoundError(
+                f"Repository {repository_id} not found"
+            )

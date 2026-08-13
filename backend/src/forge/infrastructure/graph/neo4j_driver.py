@@ -33,14 +33,32 @@ _constraints_ready = False
 
 # Idempotent by construction (`IF NOT EXISTS`) — safe to re-run every process
 # start, and safe to re-run if `_constraints_ready` is ever reset (e.g. tests).
+#
+# `node_id_unique`/`node_repository_id` back every node with a *label-generic*
+# `:Node` (applied alongside its real `:File`/`:Symbol`/`:Repository` label —
+# see neo4j_graph_repository.py's node-write query) — added after a real
+# scalability bug found validating Forge against scrapy/scrapy (476 files):
+# every id/repository_id node lookup in this package that doesn't already
+# know which concrete label to match against (a relationship endpoint during
+# graph projection, an impact/path traversal's starting node, a statistics
+# aggregate) was written as a label-less `MATCH (n {id: ...})`. Neo4j has no
+# index that spans multiple labels, so a label-less property match can only
+# be answered with `AllNodesScan` — confirmed empirically via `EXPLAIN`
+# against the running database (`AllNodesScan` over 133,627 nodes, i.e. every
+# node ever projected into this shared instance, for *each* row of a
+# relationship-write `UNWIND` batch) and via a live `SHOW TRANSACTIONS`
+# (one single graph-projection query still running after 5m44s). `:Node`
+# gives every one of those lookups a real index to seek through instead.
 _CONSTRAINT_STATEMENTS = (
     "CREATE CONSTRAINT repository_id_unique IF NOT EXISTS "
     "FOR (r:Repository) REQUIRE r.id IS UNIQUE",
     "CREATE CONSTRAINT file_id_unique IF NOT EXISTS FOR (f:File) REQUIRE f.id IS UNIQUE",
     "CREATE CONSTRAINT symbol_id_unique IF NOT EXISTS FOR (s:Symbol) REQUIRE s.id IS UNIQUE",
+    "CREATE CONSTRAINT node_id_unique IF NOT EXISTS FOR (n:Node) REQUIRE n.id IS UNIQUE",
     "CREATE INDEX file_repository_id IF NOT EXISTS FOR (f:File) ON (f.repository_id)",
     "CREATE INDEX symbol_repository_id IF NOT EXISTS FOR (s:Symbol) ON (s.repository_id)",
     "CREATE INDEX symbol_kind IF NOT EXISTS FOR (s:Symbol) ON (s.kind)",
+    "CREATE INDEX node_repository_id IF NOT EXISTS FOR (n:Node) ON (n.repository_id)",
 )
 
 # Exceptions that mean "Neo4j is unreachable/unusable right now" rather than

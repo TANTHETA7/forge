@@ -102,7 +102,7 @@ def _neighbor_query(direction: str, kind: GraphRelationshipKind | None) -> str:
     pattern = _NEIGHBOR_PATTERNS[direction].format(rel_filter=rel_filter)
     direction_expr = _NEIGHBOR_DIRECTION_EXPR[direction]
     return (
-        "MATCH (n {id: $node_id, repository_id: $repository_id}) "
+        "MATCH (n:Node {id: $node_id, repository_id: $repository_id}) "
         f"MATCH {pattern} "
         f"RETURN m, labels(m) AS labels, type(r) AS rel_type, {direction_expr} "
         "ORDER BY m.id LIMIT $limit"
@@ -205,7 +205,7 @@ async def _delete_repository_graph_tx(tx: AsyncManagedTransaction, repository_id
     other repository, since the match is unconditionally scoped by
     `repository_id`."""
     await tx.run(
-        "MATCH (n {repository_id: $repository_id}) DETACH DELETE n",
+        "MATCH (n:Node {repository_id: $repository_id}) DETACH DELETE n",
         repository_id=str(repository_id),
     )
 
@@ -238,8 +238,16 @@ async def _write_nodes_and_relationships_tx(
         nodes_by_label[node.kind].append(_node_row(node))
     for node_kind, rows in nodes_by_label.items():
         label = NODE_LABEL[node_kind]
+        # Every node also gets the label-generic `:Node` (see
+        # neo4j_driver.py's `node_id_unique`/`node_repository_id` docstring)
+        # so an id/repository_id lookup that doesn't know which concrete
+        # label to expect — every relationship endpoint below, every
+        # impact/path/statistics query in
+        # infrastructure/graph_intelligence/neo4j_graph_intelligence_repository.py —
+        # has a real index to seek through instead of `AllNodesScan`-ing the
+        # whole database.
         await tx.run(
-            f"UNWIND $rows AS row MERGE (x:{label} {{id: row.id}}) SET x += row", rows=rows
+            f"UNWIND $rows AS row MERGE (x:{label}:Node {{id: row.id}}) SET x += row", rows=rows
         )
 
     relationships_by_kind: dict[GraphRelationshipKind, list[dict[str, object]]] = defaultdict(
@@ -254,10 +262,19 @@ async def _write_nodes_and_relationships_tx(
             if rel_kind in _DEPENDENCY_DERIVED_KINDS
             else ""
         )
+        # `:Node` on both endpoints is not cosmetic — this is the confirmed
+        # root cause of a real hang found validating Forge against
+        # scrapy/scrapy: a label-less `MATCH (a {id: ...})` cannot use any
+        # label-scoped index, so Neo4j answers it with `AllNodesScan` — for
+        # *every* row this `UNWIND` processes, against every node ever
+        # projected into this shared database (confirmed via `EXPLAIN`:
+        # `AllNodesScan` over 133,627 nodes, twice, in a `CartesianProduct`,
+        # per row). `:Node` lets both matches use the `node_id_unique`
+        # constraint's index instead (see neo4j_driver.py).
         await tx.run(
             "UNWIND $rows AS row "
-            "MATCH (a {id: row.source_id, repository_id: row.repository_id}), "
-            "(b {id: row.target_id, repository_id: row.repository_id}) "
+            "MATCH (a:Node {id: row.source_id, repository_id: row.repository_id}), "
+            "(b:Node {id: row.target_id, repository_id: row.repository_id}) "
             f"MERGE (a)-[r:{rel_type} {merge_key}]->(b) "
             "SET r += row",
             rows=rows,
@@ -271,7 +288,10 @@ async def _get_nodes_tx(
     limit: int,
     offset: int,
 ) -> list[GraphNode]:
-    label = f":{NODE_LABEL[kind]}" if kind is not None else ""
+    # `:Node` always included (see neo4j_driver.py's `node_id_unique`/
+    # `node_repository_id` docstring) so this always has an index to seek
+    # through — `kind`, when given, narrows further via its concrete label.
+    label = f":Node:{NODE_LABEL[kind]}" if kind is not None else ":Node"
     query = (
         f"MATCH (n{label} {{repository_id: $repository_id}}) "
         "RETURN n, labels(n) AS labels "
@@ -295,10 +315,20 @@ async def _get_relationships_tx(
     offset: int,
 ) -> list[GraphRelationship]:
     rel_type = f":{REL_TYPE[kind]}" if kind is not None else ""
+    # `source_id, target_id` alone is not a unique tiebreaker: a real
+    # repository routinely has many distinct relationships (e.g. CALLS, one
+    # per call site) between the exact same two nodes — confirmed
+    # empirically (pytest-dev/pytest: some symbol pairs have 19 CALLS
+    # relationships between them) — so `SKIP`/`LIMIT` alone risks the same
+    # unstable-page-boundary bug fixed in dependency_edge_repository_impl.py
+    # and parsed_file_repository_impl.py. `elementId(r)` is Neo4j's own
+    # internal relationship identifier — unique, never `NULL` — used here
+    # purely as a sort tiebreaker, never returned to a caller or treated as
+    # a Forge identity (see this module's own docstring).
     query = (
         f"MATCH (a)-[r{rel_type} {{repository_id: $repository_id}}]->(b) "
         "RETURN a.id AS source_id, b.id AS target_id, r, type(r) AS rel_type "
-        "ORDER BY source_id, target_id SKIP $offset LIMIT $limit"
+        "ORDER BY source_id, target_id, elementId(r) SKIP $offset LIMIT $limit"
     )
     result = await tx.run(query, repository_id=str(repository_id), offset=offset, limit=limit)
     return [_record_to_relationship(record) async for record in result]
@@ -313,7 +343,7 @@ async def _get_neighbors_tx(
     limit: int,
 ) -> list[GraphNeighbor] | None:
     exists_result = await tx.run(
-        "MATCH (n {id: $node_id, repository_id: $repository_id}) RETURN n LIMIT 1",
+        "MATCH (n:Node {id: $node_id, repository_id: $repository_id}) RETURN n LIMIT 1",
         node_id=str(node_id),
         repository_id=str(repository_id),
     )

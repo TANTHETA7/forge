@@ -226,3 +226,65 @@ async def test_deleting_parsed_file_cascades_to_dependency_edges(
     await session.commit()
 
     assert await repo.get_edges(repository_id) == []
+
+
+async def test_large_edge_set_persists_correctly_across_multiple_insert_batches(
+    session: AsyncSession, parsed_repository: tuple[UUID, UUID, UUID]
+) -> None:
+    # Regression test for a real bug found validating Forge against
+    # pytest-dev/pytest (270 files, 28,755 dependency edges): edges were
+    # inserted one `Session.add()` at a time — the same anti-pattern already
+    # fixed for `SqlAlchemyParsedFileRepository.save_parse_result` — making
+    # persisting a real repository's dependency analysis far slower than the
+    # chunked bulk-insert form. 1,300 edges spans 3 insert batches
+    # (500+500+300) at `_INSERT_BATCH_SIZE = 500`.
+    repository_id, file_id, _symbol_id = parsed_repository
+    repo = SqlAlchemyDependencyEdgeRepository(session)
+    count = 1300
+    edges = tuple(
+        _edge(repository_id, file_id, target_file_id=file_id, raw=f"mod_{i}") for i in range(count)
+    )
+
+    await repo.save_analysis_result(repository_id, edges)
+
+    fetched = await repo.get_edges(repository_id, limit=count + 100)
+    assert len(fetched) == count  # none lost, none duplicated across batches
+    assert len({e.id for e in fetched}) == count  # every id distinct
+    assert {e.id for e in fetched} == {e.id for e in edges}  # deterministic ids pass through
+
+
+async def test_get_edges_pagination_is_stable_when_many_edges_share_a_start_line(
+    session: AsyncSession, parsed_repository: tuple[UUID, UUID, UUID]
+) -> None:
+    # Regression test for a real bug found validating Forge against
+    # pytest-dev/pytest: `get_edges` ordered only by `start_line`, a column
+    # that ties heavily on a real repository (28,755 edges over only 3,301
+    # distinct `start_line` values there). PostgreSQL gives no guarantee that
+    # `LIMIT`/`OFFSET` sees the same tie-order across two separate query
+    # executions — `application/graph/service.py`'s `_load_all_edges` drains
+    # this exact method to build every graph projection, so an unstable page
+    # boundary here silently corrupts the projected graph's relationship set,
+    # not just `GET /dependencies` API pagination. Every edge here shares the
+    # exact same `start_line`, forcing every page boundary to fall inside a
+    # tie — exactly the condition that reproduces the bug.
+    repository_id, file_id, _symbol_id = parsed_repository
+    repo = SqlAlchemyDependencyEdgeRepository(session)
+    count = 1300
+    page_size = 500
+    edges = tuple(
+        _edge(repository_id, file_id, target_file_id=file_id, raw=f"mod_{i}") for i in range(count)
+    )
+    await repo.save_analysis_result(repository_id, edges)
+
+    drained: list[DependencyEdge] = []
+    offset = 0
+    while True:
+        page = await repo.get_edges(repository_id, limit=page_size, offset=offset)
+        drained.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+
+    assert len(drained) == count  # none dropped, none duplicated across the page boundary
+    assert len({e.id for e in drained}) == count
+    assert {e.id for e in drained} == {e.id for e in edges}

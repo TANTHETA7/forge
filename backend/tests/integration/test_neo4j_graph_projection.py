@@ -273,6 +273,90 @@ async def test_deterministic_ids_are_stable_across_runs(session: AsyncSession) -
     assert {n.id for n in persisted} == {repository_id, file_a.id}
 
 
+def _plan_operator_types(plan: object) -> set[str]:
+    """Flatten a Neo4j `ResultSummary.plan`'s operator tree into the set of
+    every `operatorType` it contains, recursing through `children` — used to
+    assert an operator (e.g. `AllNodesScan`) never appears anywhere in the
+    plan, not just at the root."""
+    if not isinstance(plan, dict):
+        return set()
+    types = {str(plan["operatorType"])} if "operatorType" in plan else set()
+    for child in plan.get("children", ()):
+        types |= _plan_operator_types(child)
+    return types
+
+
+async def test_relationship_projection_never_falls_back_to_a_full_node_scan(
+    session: AsyncSession,
+) -> None:
+    # Regression test for a real, severe bug found validating Forge against
+    # scrapy/scrapy (476 files): the relationship-write query's `MATCH (a
+    # {id: ...}), (b {id: ...})` had no node label, so Neo4j could not use
+    # any label-scoped index and fell back to `AllNodesScan` — confirmed via
+    # `EXPLAIN` against a real database (`AllNodesScan` over 133,627 nodes,
+    # in a `CartesianProduct`, for *every row* of the relationship-write
+    # `UNWIND`) and via a live `SHOW TRANSACTIONS` (one single
+    # graph-projection query still running after 5m44s against a 476-file
+    # repository). A plan-shape assertion catches a regression back to this
+    # deterministically — no timing/flakiness risk — where a wall-clock
+    # timing test would need many thousands of pre-existing nodes to
+    # reliably distinguish "slow" from "hung" and would be slow itself.
+    query = (
+        "EXPLAIN UNWIND [{source_id: 'x', target_id: 'y', repository_id: 'z', "
+        "dependency_edge_id: 'w'}] AS row "
+        "MATCH (a:Node {id: row.source_id, repository_id: row.repository_id}), "
+        "(b:Node {id: row.target_id, repository_id: row.repository_id}) "
+        "MERGE (a)-[r:IMPORTS {dependency_edge_id: row.dependency_edge_id}]->(b) "
+        "SET r += row"
+    )
+    result = await session.run(query)
+    summary = await result.consume()
+
+    operator_types = _plan_operator_types(summary.plan)
+    assert "AllNodesScan" not in operator_types
+    assert any("IndexSeek" in op for op in operator_types)
+
+
+async def test_get_relationships_pagination_is_stable_with_many_edges_between_the_same_pair(
+    session: AsyncSession,
+) -> None:
+    # Regression test for a real bug found validating Forge against
+    # pytest-dev/pytest: `get_relationships` ordered by `source_id, target_id`
+    # only — not unique when many distinct relationships connect the exact
+    # same two nodes (confirmed empirically there: some symbol pairs have 19
+    # CALLS relationships between them, one per call site). `SKIP`/`LIMIT`
+    # alone is not guaranteed to see the same tie-order across two separate
+    # query executions. Every relationship here connects the identical
+    # (source, target) pair, forcing every page boundary to fall inside a
+    # tie — exactly the condition that reproduces the bug.
+    repo = Neo4jGraphRepository(session)
+    repository_id = uuid4()
+    file_a = _file_node(repository_id, "a.py")
+    file_b = _file_node(repository_id, "b.py")
+    count = 40
+    page_size = 15
+    relationships = tuple(
+        _imports(repository_id, file_a.id, file_b.id, uuid4()) for _ in range(count)
+    )
+    await repo.project_repository(
+        repository_id, (_repository_node(repository_id), file_a, file_b), relationships
+    )
+
+    drained: list[GraphRelationship] = []
+    offset = 0
+    while True:
+        page = await repo.get_relationships(repository_id, limit=page_size, offset=offset)
+        drained.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+
+    assert len(drained) == count  # none dropped, none duplicated across the page boundary
+    dependency_edge_ids = {r.dependency_edge_id for r in drained}
+    assert len(dependency_edge_ids) == count  # every underlying edge distinct
+    assert dependency_edge_ids == {r.dependency_edge_id for r in relationships}
+
+
 async def test_projected_at_is_stamped_on_the_repository_node(session: AsyncSession) -> None:
     """Added in Phase 6 (docs/architecture/06-code-intelligence.md, "Graph
     freshness") — a small, additive Phase 5 touch: `project_repository`

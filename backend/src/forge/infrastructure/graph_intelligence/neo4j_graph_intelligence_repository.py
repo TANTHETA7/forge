@@ -210,7 +210,7 @@ async def _get_impact_tx(
     limit: int,
 ) -> ImpactAnalysisResult | None:
     exists_result = await tx.run(
-        "MATCH (n {id: $node_id, repository_id: $repository_id}) RETURN n LIMIT 1",
+        "MATCH (n:Node {id: $node_id, repository_id: $repository_id}) RETURN n LIMIT 1",
         node_id=str(node_id),
         repository_id=str(repository_id),
     )
@@ -218,7 +218,7 @@ async def _get_impact_tx(
         return None
 
     result = await tx.run(
-        "MATCH (n {id: $node_id, repository_id: $repository_id}) "
+        "MATCH (n:Node {id: $node_id, repository_id: $repository_id}) "
         "CALL apoc.path.expandConfig(n, {"
         "relationshipFilter: $rel_filter, minLevel: 1, maxLevel: $max_depth, "
         "uniqueness: 'NODE_GLOBAL', bfs: true, limit: $limit"
@@ -259,7 +259,7 @@ async def _get_path_tx(
     kind: GraphRelationshipKind | None,
 ) -> DependencyPathResult | None:
     exists_result = await tx.run(
-        "MATCH (n {repository_id: $repository_id}) WHERE n.id IN [$source_id, $target_id] "
+        "MATCH (n:Node {repository_id: $repository_id}) WHERE n.id IN [$source_id, $target_id] "
         "RETURN collect(n.id) AS ids",
         repository_id=str(repository_id),
         source_id=str(source_id),
@@ -272,7 +272,7 @@ async def _get_path_tx(
 
     if source_id == target_id:
         node_result = await tx.run(
-            "MATCH (n {id: $source_id, repository_id: $repository_id}) "
+            "MATCH (n:Node {id: $source_id, repository_id: $repository_id}) "
             "RETURN n, labels(n) AS labels",
             source_id=str(source_id),
             repository_id=str(repository_id),
@@ -289,8 +289,8 @@ async def _get_path_tx(
     # for why it cannot be a Cypher parameter inside shortestPath()'s bound.
     rel_pattern = _path_relationship_pattern(kind)
     result = await tx.run(
-        "MATCH (a {id: $source_id, repository_id: $repository_id}), "
-        "(b {id: $target_id, repository_id: $repository_id}) "
+        "MATCH (a:Node {id: $source_id, repository_id: $repository_id}), "
+        "(b:Node {id: $target_id, repository_id: $repository_id}) "
         f"MATCH p = shortestPath((a)-[{rel_pattern}*1..{max_depth}]->(b)) "
         "RETURN [n IN nodes(p) | n] AS path_nodes, "
         "[n IN nodes(p) | labels(n)] AS path_labels, "
@@ -374,7 +374,8 @@ async def _get_statistics_tx(
     repo_id = str(repository_id)
 
     node_counts_result = await tx.run(
-        "MATCH (n {repository_id: $repository_id}) RETURN labels(n)[0] AS label, count(*) AS c",
+        "MATCH (n:Node {repository_id: $repository_id}) "
+        "RETURN labels(n)[0] AS label, count(*) AS c",
         repository_id=repo_id,
     )
     node_counts = {record["label"]: record["c"] async for record in node_counts_result}
@@ -382,10 +383,21 @@ async def _get_statistics_tx(
     total_symbols = node_counts.get(NODE_LABEL[GraphNodeKind.SYMBOL], 0)
     total_nodes = sum(node_counts.values())
 
-    rel_counts_result = await tx.run(
-        "MATCH ()-[r {repository_id: $repository_id}]->() RETURN type(r) AS kind, count(*) AS c",
-        repository_id=repo_id,
+    # One query per relationship type (`UNION ALL`), each anchored on its own
+    # relationship type, rather than one label-less `MATCH ()-[r {...}]->()`
+    # — Neo4j has no property index on relationships here, so a type-less
+    # relationship match can only be answered by scanning every relationship
+    # in the whole database (same `AllNodesScan`-class problem `:Node` fixes
+    # for nodes — see neo4j_driver.py's docstring — but relationship
+    # property indexes are per-type in Neo4j 5, so the fix here is simply to
+    # always give it the type it's actually counting, which every caller of
+    # this method already knows statically from `GraphRelationshipKind`).
+    rel_counts_query = " UNION ALL ".join(
+        f"MATCH ()-[r:{REL_TYPE[kind]} {{repository_id: $repository_id}}]->() "
+        f"RETURN '{REL_TYPE[kind]}' AS kind, count(r) AS c"
+        for kind in GraphRelationshipKind
     )
+    rel_counts_result = await tx.run(rel_counts_query, repository_id=repo_id)
     raw_rel_counts = {record["kind"]: record["c"] async for record in rel_counts_result}
     relationships_by_kind = tuple(
         RelationshipKindCount(kind=kind, count=raw_rel_counts.get(REL_TYPE[kind], 0))
@@ -394,7 +406,7 @@ async def _get_statistics_tx(
     total_relationships = sum(entry.count for entry in relationships_by_kind)
 
     in_degree_result = await tx.run(
-        "MATCH (n {repository_id: $repository_id})<-[r {repository_id: $repository_id}]-() "
+        "MATCH (n:Node {repository_id: $repository_id})<-[r {repository_id: $repository_id}]-() "
         "RETURN n, labels(n) AS labels, count(r) AS degree "
         "ORDER BY degree DESC, n.id LIMIT $limit",
         repository_id=repo_id,
@@ -410,7 +422,7 @@ async def _get_statistics_tx(
     )
 
     out_degree_result = await tx.run(
-        "MATCH (n {repository_id: $repository_id})-[r {repository_id: $repository_id}]->() "
+        "MATCH (n:Node {repository_id: $repository_id})-[r {repository_id: $repository_id}]->() "
         "RETURN n, labels(n) AS labels, count(r) AS degree "
         "ORDER BY degree DESC, n.id LIMIT $limit",
         repository_id=repo_id,

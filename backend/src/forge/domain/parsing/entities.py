@@ -222,6 +222,24 @@ class ParsedFile:
 
 
 @dataclass(frozen=True, slots=True)
+class ParsedFileSummary:
+    """The file-level projection used by ``GET .../files``.
+
+    This deliberately contains counts rather than child entities.  Listing files
+    must not construct every symbol, parameter, call site, and import merely to
+    calculate the two counts exposed by the endpoint.
+    """
+
+    id: UUID
+    repository_id: UUID
+    path: str
+    language: Language
+    has_syntax_errors: bool
+    symbol_count: int
+    import_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ParseError:
     """One file that could not be (fully) parsed, recorded rather than raised —
     see domain/errors.py::ParseFailure for the exception this is built from.

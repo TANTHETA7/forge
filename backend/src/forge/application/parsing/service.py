@@ -36,6 +36,7 @@ from forge.domain.errors import NotFoundError, ParseFailure, UnsupportedReposito
 from forge.domain.parsing.entities import (
     DiscoveredFile,
     ParsedFile,
+    ParsedFileSummary,
     ParseError,
     ParseResult,
     SkippedFile,
@@ -153,6 +154,10 @@ class ParsingService:
     async def get_files(self, repository_id: UUID) -> list[ParsedFile]:
         await self._require_repository(repository_id)
         return await self._parsed_files.get_files(repository_id)
+
+    async def get_file_summaries(self, repository_id: UUID) -> list[ParsedFileSummary]:
+        await self._require_repository(repository_id)
+        return await self._parsed_files.get_file_summaries(repository_id)
 
     async def get_symbols(
         self,

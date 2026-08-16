@@ -26,6 +26,7 @@ from forge.domain.parsing.entities import (
     DiscoveredFile,
     Language,
     ParsedFile,
+    ParsedFileSummary,
     ParseError,
     ParseResult,
     SkippedFile,
@@ -91,6 +92,14 @@ class ParsedFileRepository(Protocol):
     async def get_files(self, repository_id: UUID) -> list[ParsedFile]:
         """Every parsed file for `repository_id`, most-recently-parsed first is
         not guaranteed — callers needing an order should sort by `path`."""
+        ...
+
+    async def get_file_summaries(self, repository_id: UUID) -> list[ParsedFileSummary]:
+        """File-level API projection for ``repository_id``, ordered by path/id.
+
+        The counts are computed by the persistence implementation without
+        materializing the nested parsing graph.
+        """
         ...
 
     async def get_symbols(

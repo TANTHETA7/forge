@@ -54,7 +54,14 @@ from forge.domain.graph_intelligence.entities import (
     NodeDegree,
     RelationshipKindCount,
 )
-from forge.domain.parsing.entities import ParsedFile, ParseError, ParseResult, Symbol, SymbolKind
+from forge.domain.parsing.entities import (
+    ParsedFile,
+    ParsedFileSummary,
+    ParseError,
+    ParseResult,
+    Symbol,
+    SymbolKind,
+)
 from forge.domain.project.entities import Project
 from forge.domain.repository.entities import Repository
 
@@ -100,6 +107,23 @@ class InMemoryParsedFileRepository:
     async def get_files(self, repository_id: UUID) -> list[ParsedFile]:
         result = self._results.get(repository_id)
         return list(result.files) if result else []
+
+    async def get_file_summaries(self, repository_id: UUID) -> list[ParsedFileSummary]:
+        result = self._results.get(repository_id)
+        if result is None:
+            return []
+        return [
+            ParsedFileSummary(
+                id=file.id,
+                repository_id=file.repository_id,
+                path=file.path,
+                language=file.language,
+                has_syntax_errors=file.has_syntax_errors,
+                symbol_count=len(file.symbols),
+                import_count=len(file.imports),
+            )
+            for file in sorted(result.files, key=lambda file: (file.path, str(file.id)))
+        ]
 
     async def get_symbols(
         self,

@@ -168,6 +168,77 @@ async def test_save_and_read_back_full_parse_result(
 
 
 @pytest.mark.asyncio
+async def test_get_file_summaries_uses_one_aggregate_query_without_loading_child_graph(
+    session: AsyncSession, repository_id: UUID
+) -> None:
+    """The API projection must not read parameters/call sites to count files."""
+    populated = _sample_result(repository_id).files[0]
+    second_import = Import(
+        id=uuid4(),
+        module="sys",
+        imported_names=(),
+        alias=None,
+        location=SourceLocation(start_line=2, end_line=2, start_column=0, end_column=None),
+    )
+    populated = ParsedFile(
+        id=populated.id,
+        repository_id=populated.repository_id,
+        path=populated.path,
+        language=populated.language,
+        symbols=populated.symbols,
+        imports=(*populated.imports, second_import),
+        has_syntax_errors=populated.has_syntax_errors,
+    )
+    empty = ParsedFile(
+        id=uuid4(),
+        repository_id=repository_id,
+        path="empty.py",
+        language=Language.PYTHON,
+        symbols=(),
+        imports=(),
+        has_syntax_errors=True,
+    )
+    repo = SqlAlchemyParsedFileRepository(session)
+    await repo.save_parse_result(
+        ParseResult(
+            repository_id=repository_id,
+            files=(populated, empty),
+            errors=(),
+            parsed_at=datetime.now(UTC),
+        )
+    )
+
+    statements: list[str] = []
+
+    def _record_query(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", _record_query)
+    try:
+        summaries = await repo.get_file_summaries(repository_id)
+    finally:
+        event.remove(Engine, "before_cursor_execute", _record_query)
+
+    counts = [(summary.path, summary.symbol_count, summary.import_count) for summary in summaries]
+    assert counts == [
+        ("empty.py", 0, 0),
+        ("src/app.py", 2, 2),
+    ]
+    assert summaries[0].has_syntax_errors is True
+    assert len(statements) == 1
+    statement = statements[0].lower()
+    assert "parameters" not in statement
+    assert "call_sites" not in statement
+
+
+@pytest.mark.asyncio
 async def test_base_class_names_round_trip(session: AsyncSession, repository_id: UUID) -> None:
     result = _sample_result(repository_id)
     repo = SqlAlchemyParsedFileRepository(session)

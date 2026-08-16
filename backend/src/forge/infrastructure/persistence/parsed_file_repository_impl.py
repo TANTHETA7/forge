@@ -79,6 +79,7 @@ from forge.domain.parsing.entities import (
     Language,
     Parameter,
     ParsedFile,
+    ParsedFileSummary,
     ParseError,
     ParseResult,
     SourceLocation,
@@ -270,6 +271,54 @@ class SqlAlchemyParsedFileRepository:
                 has_syntax_errors=row.has_syntax_errors,
             )
             for row in file_rows
+        ]
+
+    async def get_file_summaries(self, repository_id: UUID) -> list[ParsedFileSummary]:
+        """Read the ``GET .../files`` projection without loading child rows.
+
+        Aggregating symbols and imports independently prevents the cartesian
+        multiplication a single multi-child join would introduce.  Parameters
+        and call sites are intentionally absent: they are not part of this
+        endpoint's response contract.
+        """
+        symbol_counts = (
+            select(SymbolRow.file_id.label("file_id"), func.count(SymbolRow.id).label("count"))
+            .where(SymbolRow.repository_id == repository_id)
+            .group_by(SymbolRow.file_id)
+            .subquery()
+        )
+        import_counts = (
+            select(ImportRow.file_id.label("file_id"), func.count(ImportRow.id).label("count"))
+            .where(ImportRow.repository_id == repository_id)
+            .group_by(ImportRow.file_id)
+            .subquery()
+        )
+        rows = await self._session.execute(
+            select(
+                ParsedFileRow.id,
+                ParsedFileRow.repository_id,
+                ParsedFileRow.path,
+                ParsedFileRow.language,
+                ParsedFileRow.has_syntax_errors,
+                func.coalesce(symbol_counts.c.count, 0).label("symbol_count"),
+                func.coalesce(import_counts.c.count, 0).label("import_count"),
+            )
+            .outerjoin(symbol_counts, symbol_counts.c.file_id == ParsedFileRow.id)
+            .outerjoin(import_counts, import_counts.c.file_id == ParsedFileRow.id)
+            .where(ParsedFileRow.repository_id == repository_id)
+            .order_by(ParsedFileRow.path, ParsedFileRow.id)
+        )
+        return [
+            ParsedFileSummary(
+                id=row.id,
+                repository_id=row.repository_id,
+                path=row.path,
+                language=Language(row.language),
+                has_syntax_errors=row.has_syntax_errors,
+                symbol_count=row.symbol_count,
+                import_count=row.import_count,
+            )
+            for row in rows
         ]
 
     async def get_symbols(

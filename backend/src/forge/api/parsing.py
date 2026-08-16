@@ -27,7 +27,13 @@ from forge.api.schemas import (
 )
 from forge.application.parsing.service import ParsingService
 from forge.core.config import Settings, get_settings
-from forge.domain.parsing.entities import Parameter, ParsedFile, ParseResult, Symbol, SymbolKind
+from forge.domain.parsing.entities import (
+    Parameter,
+    ParsedFileSummary,
+    ParseResult,
+    Symbol,
+    SymbolKind,
+)
 from forge.domain.parsing.ports import ParsedFileRepository
 from forge.domain.repository.ports import RepositoryRepository
 from forge.infrastructure.parsing.file_discovery import FilesystemFileDiscovery
@@ -85,7 +91,7 @@ async def list_files(
 ) -> list[ParsedFileResponse]:
     """Every parsed file for this repository, summarized (symbol/import counts,
     not the full lists — see `GET .../symbols` for those)."""
-    files = await service.get_files(repository_id)
+    files = await service.get_file_summaries(repository_id)
     return [_to_file_response(f) for f in files]
 
 
@@ -145,15 +151,15 @@ def _to_summary(result: ParseResult) -> ParseSummaryResponse:
     )
 
 
-def _to_file_response(parsed_file: ParsedFile) -> ParsedFileResponse:
+def _to_file_response(parsed_file: ParsedFileSummary) -> ParsedFileResponse:
     return ParsedFileResponse(
         id=parsed_file.id,
         repository_id=parsed_file.repository_id,
         path=parsed_file.path,
         language=parsed_file.language.value,
         has_syntax_errors=parsed_file.has_syntax_errors,
-        symbol_count=len(parsed_file.symbols),
-        import_count=len(parsed_file.imports),
+        symbol_count=parsed_file.symbol_count,
+        import_count=parsed_file.import_count,
     )
 
 

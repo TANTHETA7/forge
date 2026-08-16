@@ -54,20 +54,30 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         yield test_client
 
 
-def _make_zip_bytes() -> bytes:
+def _make_zip_bytes(*, include_empty_file: bool = False) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as zf:
         zf.writestr("README.md", "hello forge")  # unsupported — silently skipped
         zf.writestr("src/main.py", "class Foo:\n    def bar(self, x):\n        pass\n")
         zf.writestr("src/app.js", "function greet() {}\n")
+        if include_empty_file:
+            zf.writestr("empty.py", "")
     return buffer.getvalue()
 
 
-def _import_ready_repository(client: TestClient) -> tuple[str, str]:
+def _import_ready_repository(
+    client: TestClient, *, include_empty_file: bool = False
+) -> tuple[str, str]:
     project = client.post("/api/v1/projects", json={"name": "Parsing Test"}).json()
     repository = client.post(
         f"/api/v1/projects/{project['id']}/repositories/import/zip",
-        files={"file": ("upload.zip", _make_zip_bytes(), "application/zip")},
+        files={
+            "file": (
+                "upload.zip",
+                _make_zip_bytes(include_empty_file=include_empty_file),
+                "application/zip",
+            )
+        },
     ).json()
     assert repository["status"] == "ready"
     return project["id"], repository["id"]
@@ -145,6 +155,38 @@ def test_list_files_after_parsing(client: TestClient) -> None:
     files = response.json()
     assert {f["path"] for f in files} == {"src/main.py", "src/app.js"}
     assert {f["language"] for f in files} == {"python", "javascript"}
+
+
+def test_list_files_preserves_summary_schema_counts_and_zero_child_files(
+    client: TestClient,
+) -> None:
+    project_id, repository_id = _import_ready_repository(client, include_empty_file=True)
+    parse_response = client.post(
+        f"/api/v1/projects/{project_id}/repositories/{repository_id}/parse"
+    )
+    assert parse_response.status_code == 201
+
+    response = client.get(f"/api/v1/projects/{project_id}/repositories/{repository_id}/files")
+
+    assert response.status_code == 200
+    files = response.json()
+    assert [file["path"] for file in files] == ["empty.py", "src/app.js", "src/main.py"]
+    assert set(files[0]) == {
+        "id",
+        "repository_id",
+        "path",
+        "language",
+        "has_syntax_errors",
+        "symbol_count",
+        "import_count",
+    }
+    by_path = {file["path"]: file for file in files}
+    assert by_path["empty.py"]["symbol_count"] == 0
+    assert by_path["empty.py"]["import_count"] == 0
+    assert by_path["src/app.js"]["symbol_count"] == 1
+    assert by_path["src/app.js"]["import_count"] == 0
+    assert by_path["src/main.py"]["symbol_count"] == 2
+    assert by_path["src/main.py"]["import_count"] == 0
 
 
 def test_list_symbols_filters_by_kind(client: TestClient) -> None:

@@ -40,3 +40,6 @@ Thumbs.db
 *.log
 
 data/
+
+# --- Agent tooling scratch (verification scripts, screenshots, browser profile) ---
+.claude/scratch/

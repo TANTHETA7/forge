@@ -96,6 +96,63 @@ class Settings(BaseSettings):
     # own module docstring for the confirmed error).
     graph_query_timeout_seconds: float = 10.0
 
+    # -- Retrieval-Augmented Code Intelligence (Phase 7: RAG) --
+    # Ollama is the single external dependency for real embeddings and generation
+    # (infrastructure/rag/embeddings/ and infrastructure/rag/llm/). Both providers
+    # are swappable via the *_provider flags: "ollama" runs real inference against
+    # a local model server; the deterministic offline providers ("hashing" /
+    # "extractive") let the whole pipeline — chunking, storage, repository-scoped
+    # retrieval, grounding — be unit-tested without a running model. The defaults
+    # are the real providers; nothing here is a production mock.
+    ollama_base_url: str = "http://localhost:11434"
+    rag_ollama_timeout_seconds: float = 120.0
+
+    rag_embedding_provider: Literal["ollama", "hashing"] = "ollama"
+    rag_embedding_model: str = "nomic-embed-text"
+    rag_embedding_dimensions: int = 768
+    # Documents are embedded in batches of this size, so indexing N chunks costs
+    # ~ceil(N / batch) Ollama requests, never N (no per-chunk round trip).
+    rag_embedding_batch_size: int = 32
+
+    rag_llm_provider: Literal["ollama", "extractive"] = "ollama"
+    rag_llm_model: str = "qwen2.5-coder:3b"
+    # Grounded Q&A over supplied code, not creative writing — keep generation
+    # near-deterministic.
+    rag_llm_temperature: float = 0.1
+    rag_llm_num_ctx: int = 8192
+
+    # -- Chunking bounds (avoid giant/duplicate chunks) --
+    # A symbol/region larger than this is split into windows of at most this many
+    # lines (and characters), so one long function can't produce a single
+    # multi-thousand-line chunk that dominates an embedding or a prompt.
+    rag_chunk_max_lines: int = 160
+    rag_chunk_max_chars: int = 6000
+    # A region with fewer non-whitespace characters than this is dropped — too
+    # little signal to embed usefully.
+    rag_chunk_min_chars: int = 24
+
+    # -- Retrieval / context bounds (every RAG read is bounded; the whole
+    #    repository is never scanned unboundedly nor dumped into a prompt) --
+    # Cosine similarity is computed in Python over at most this many repository-
+    # scoped candidate embeddings — there is no pgvector in this deployment (see
+    # infrastructure/rag/chunk_repository_impl.py). Repository isolation is a hard
+    # `WHERE repository_id = :id` on every candidate query.
+    rag_retrieval_candidate_limit: int = 5000
+    # How many top-scored chunks are returned and fed to the model.
+    rag_retrieval_top_k: int = 6
+    # A question whose single best chunk scores below this cosine floor is treated
+    # as "insufficient evidence" — the model is never asked to answer from code
+    # that is unrelated to the question.
+    rag_retrieval_min_score: float = 0.35
+    # Bounded Neo4j graph expansion: only the top N retrieved chunks that map to a
+    # graph symbol are expanded, each by at most M neighbours — a constant number
+    # of graph calls (<= seed_limit), never one per result (no N+1).
+    rag_graph_seed_limit: int = 3
+    rag_graph_neighbor_limit: int = 8
+    # Hard ceiling on the total characters of code context assembled into one
+    # prompt.
+    rag_max_context_chars: int = 9000
+
 
 @lru_cache
 def get_settings() -> Settings:

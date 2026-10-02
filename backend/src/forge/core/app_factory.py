@@ -12,7 +12,7 @@ Depends on:    core/config.py, core/logging.py, api/health.py (and every future
 Depended on by: main.py, tests/conftest.py (future).
 """
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from forge.api.dependencies import router as dependencies_router
@@ -20,8 +20,10 @@ from forge.api.error_handlers import register_error_handlers
 from forge.api.graph import router as graph_router
 from forge.api.graph_intelligence import router as graph_intelligence_router
 from forge.api.health import router as health_router
+from forge.api.ownership import verify_repository_ownership
 from forge.api.parsing import router as parsing_router
 from forge.api.projects import router as projects_router
+from forge.api.rag import router as rag_router
 from forge.api.repositories import router as repositories_router
 from forge.core.config import Settings, get_settings
 from forge.core.logging import configure_logging
@@ -59,9 +61,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router, prefix=settings.api_v1_prefix)
     app.include_router(projects_router, prefix=settings.api_v1_prefix)
     app.include_router(repositories_router, prefix=settings.api_v1_prefix)
-    app.include_router(parsing_router, prefix=settings.api_v1_prefix)
-    app.include_router(dependencies_router, prefix=settings.api_v1_prefix)
-    app.include_router(graph_router, prefix=settings.api_v1_prefix)
-    app.include_router(graph_intelligence_router, prefix=settings.api_v1_prefix)
+
+    # Every fully repository-scoped router (mounted under
+    # /projects/{project_id}/repositories/{repository_id}) is guarded uniformly:
+    # `verify_repository_ownership` rejects a repository that doesn't belong to
+    # the project in the path with a 404, closing the cross-project IDOR at the
+    # edge (see api/ownership.py). `repositories_router` is deliberately excluded
+    # — its import routes have no `repository_id` to check, so its one scoped
+    # route (`GET /{repository_id}`) carries the dependency itself.
+    scoped = [Depends(verify_repository_ownership)]
+    app.include_router(parsing_router, prefix=settings.api_v1_prefix, dependencies=scoped)
+    app.include_router(dependencies_router, prefix=settings.api_v1_prefix, dependencies=scoped)
+    app.include_router(graph_router, prefix=settings.api_v1_prefix, dependencies=scoped)
+    app.include_router(
+        graph_intelligence_router, prefix=settings.api_v1_prefix, dependencies=scoped
+    )
+    app.include_router(rag_router, prefix=settings.api_v1_prefix, dependencies=scoped)
 
     return app

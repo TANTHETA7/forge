@@ -22,7 +22,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -184,3 +184,54 @@ class ParseErrorRow(Base):
     stage: Mapped[str] = mapped_column(String(20))
     message: Mapped[str] = mapped_column(Text)
     occurred_at: Mapped[datetime]
+
+
+# -- Phase 7: Retrieval-Augmented Code Intelligence ---------------------------
+# One row per retrievable code chunk plus its embedding. The whole table is a
+# per-repository index: every read is filtered by `repository_id` (the isolation
+# key — repository A must never retrieve repository B's chunks), and the indexes
+# below make the two hot paths cheap without pgvector:
+#   * candidate scan for similarity   -> ix on repository_id
+#   * embedding reuse across reindex  -> ix on (repository_id, content_hash)
+#   * graph-seeded chunk fetch        -> ix on (repository_id, symbol_id)
+#
+# `file_id` cascades from `parsed_files`, so re-parsing a repository (which
+# deletes and rewrites its `parsed_files` rows) automatically discards that
+# repository's chunks — a stale index can never outlive the source it indexed;
+# the repository simply reports "not indexed" until re-indexed. `symbol_id` is a
+# plain value column, not a foreign key: it doubles as the Neo4j graph node key
+# (a GraphNode's id *is* this symbol id) and is looked up by value, so coupling
+# it to the `symbols` table's lifecycle would add FK-violation risk during a
+# concurrent re-parse for no referential benefit (the `file_id` cascade already
+# governs chunk lifetime). `NULL` for module-level regions that own no symbol.
+# The embedding is stored as a JSON array of floats (already L2-normalized by the
+# provider) and cosine-scored in Python — the smallest thing that works on a
+# stock postgres:16-alpine with no vector extension.
+
+
+class CodeChunkRow(Base):
+    __tablename__ = "code_chunks"
+    __table_args__ = (
+        Index("ix_code_chunks_repository_id", "repository_id"),
+        Index("ix_code_chunks_repo_content_hash", "repository_id", "content_hash"),
+        Index("ix_code_chunks_repo_symbol_id", "repository_id", "symbol_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    repository_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repositories.id"))
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("parsed_files.id", ondelete="CASCADE")
+    )
+    path: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(20))
+    start_line: Mapped[int]
+    end_line: Mapped[int]
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    symbol_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    symbol_qualified_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    symbol_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    token_estimate: Mapped[int]
+    embedding: Mapped[list[float]] = mapped_column(JSON)
+    embedding_model: Mapped[str] = mapped_column(String(100))
+    indexed_at: Mapped[datetime]

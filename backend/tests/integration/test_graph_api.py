@@ -284,8 +284,11 @@ def test_get_neighbors_unknown_node_returns_404(client: TestClient) -> None:
 def test_get_neighbors_cross_repository_node_returns_404(client: TestClient) -> None:
     project_id, repository_id_a = _import_and_parse_ready_repository(client)
     client.post(f"/api/v1/projects/{project_id}/repositories/{repository_id_a}/graph/project")
-    _, repository_id_b = _import_and_parse_ready_repository(client)
-    client.post(f"/api/v1/projects/{project_id}/repositories/{repository_id_b}/graph/project")
+    # Repository B belongs to its OWN project — use that project's id on B's URLs
+    # so the repository-ownership guard passes and what's actually under test is
+    # the graph layer's cross-repository node isolation, not the ownership 404.
+    project_id_b, repository_id_b = _import_and_parse_ready_repository(client)
+    client.post(f"/api/v1/projects/{project_id_b}/repositories/{repository_id_b}/graph/project")
 
     nodes_a = client.get(
         f"/api/v1/projects/{project_id}/repositories/{repository_id_a}/graph/nodes",
@@ -293,9 +296,9 @@ def test_get_neighbors_cross_repository_node_returns_404(client: TestClient) -> 
     ).json()
     node_id_in_a = nodes_a[0]["id"]
 
-    # node_id_in_a is real, but queried under repository_id_b's scope.
+    # node_id_in_a is real, but queried under repository_id_b's (owned) scope.
     response = client.get(
-        f"/api/v1/projects/{project_id}/repositories/{repository_id_b}"
+        f"/api/v1/projects/{project_id_b}/repositories/{repository_id_b}"
         f"/graph/neighbors/{node_id_in_a}"
     )
 

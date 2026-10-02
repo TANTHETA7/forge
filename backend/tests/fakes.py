@@ -34,7 +34,7 @@ from forge.domain.dependency_analysis.entities import (
     DependencyKind,
     ResolutionStatus,
 )
-from forge.domain.errors import GraphUnavailableError
+from forge.domain.errors import GraphUnavailableError, RagProviderError
 from forge.domain.graph.entities import (
     GraphNeighbor,
     GraphNode,
@@ -63,6 +63,12 @@ from forge.domain.parsing.entities import (
     SymbolKind,
 )
 from forge.domain.project.entities import Project
+from forge.domain.rag.entities import (
+    ChunkEmbedding,
+    CodeChunk,
+    EmbeddedChunk,
+    IndexStatus,
+)
 from forge.domain.repository.entities import Repository
 
 
@@ -591,3 +597,190 @@ class InMemoryGraphIntelligenceRepository:
             unresolved_dependency_count=0,
             computed_at=datetime.now(UTC),
         )
+
+
+# --- Phase 7 (RAG) fakes -----------------------------------------------------
+
+
+class InMemoryChunkRepository:
+    """Mirrors `SqlAlchemyChunkRepository`'s replace-on-reindex semantics and its
+    two structural isolation guarantees — every read is scoped to one
+    `repository_id`, and every read is bounded by an explicit `limit`. Real-
+    backend coverage for the concrete implementation lives in
+    tests/integration/test_postgres_rag_persistence.py (Postgres); this fake
+    exists so the RAG application services and API routes can be exercised
+    without a live database, matching the Phase 2-6 in-memory-fake precedent."""
+
+    def __init__(self) -> None:
+        self._chunks: dict[UUID, list[EmbeddedChunk]] = {}
+
+    async def replace_chunks(
+        self, repository_id: UUID, chunks: tuple[EmbeddedChunk, ...]
+    ) -> None:
+        # Full replacement — a re-index never leaves chunks for source that no
+        # longer exists; an empty tuple clears the repository's index.
+        self._chunks[repository_id] = list(chunks)
+
+    async def get_existing_embeddings_by_hash(
+        self, repository_id: UUID, embedding_model: str
+    ) -> dict[str, tuple[float, ...]]:
+        reuse: dict[str, tuple[float, ...]] = {}
+        for embedded in self._chunks.get(repository_id, []):
+            # Scoped to the model too: a vector from a different model must never
+            # be reused (it lives in a different vector space).
+            if embedded.embedding_model != embedding_model:
+                continue
+            content_hash = embedded.chunk.content_hash
+            if content_hash not in reuse:
+                reuse[content_hash] = embedded.embedding
+        return reuse
+
+    async def get_embeddings(
+        self, repository_id: UUID, *, limit: int
+    ) -> tuple[ChunkEmbedding, ...]:
+        # Ordered by id so the (bounded) candidate window is deterministic across
+        # runs, mirroring the real `ORDER BY id LIMIT :limit`.
+        ordered = sorted(
+            self._chunks.get(repository_id, []), key=lambda e: e.chunk.id.bytes
+        )
+        return tuple(
+            ChunkEmbedding(chunk_id=e.chunk.id, embedding=e.embedding)
+            for e in ordered[:limit]
+        )
+
+    async def get_chunks_by_ids(
+        self, repository_id: UUID, chunk_ids: tuple[UUID, ...]
+    ) -> dict[UUID, CodeChunk]:
+        # Filtered by repository AND id — an id leaked from another repository is
+        # simply absent from the result (defense in depth).
+        wanted = set(chunk_ids)
+        return {
+            e.chunk.id: e.chunk
+            for e in self._chunks.get(repository_id, [])
+            if e.chunk.id in wanted
+        }
+
+    async def get_chunks_by_symbol_ids(
+        self, repository_id: UUID, symbol_ids: tuple[UUID, ...], *, limit: int
+    ) -> tuple[CodeChunk, ...]:
+        if not symbol_ids:
+            return ()
+        wanted = set(symbol_ids)
+        matching = [
+            e.chunk
+            for e in self._chunks.get(repository_id, [])
+            if e.chunk.symbol_id is not None and e.chunk.symbol_id in wanted
+        ]
+        matching.sort(key=lambda c: (str(c.symbol_id), c.start_line, c.id.bytes))
+        return tuple(matching[:limit])
+
+    async def get_status(self, repository_id: UUID) -> IndexStatus:
+        stored = self._chunks.get(repository_id, [])
+        embedding_model = max((e.embedding_model for e in stored), default=None)
+        return IndexStatus(
+            repository_id=repository_id,
+            indexed=len(stored) > 0,
+            chunk_count=len(stored),
+            embedding_model=embedding_model,
+            last_indexed_at=datetime.now(UTC) if stored else None,
+        )
+
+
+class StubEmbeddingProvider:
+    """A fully controllable `EmbeddingProvider` for RAG service unit tests.
+
+    Returns a preset vector for an exact text (falling back to `default`), so a
+    test can place a query and its intended-relevant chunk on the same axis and
+    everything else orthogonal — giving precise, deterministic control over
+    similarity scores and therefore over which retrieval branch is taken. Records
+    every call (so a test can assert, e.g., that no embedding happened) and can
+    simulate a provider outage with `fail=True` (raises `RagProviderError`)."""
+
+    def __init__(
+        self,
+        vectors: dict[str, tuple[float, ...]] | None = None,
+        *,
+        default: tuple[float, ...] = (1.0, 0.0, 0.0),
+        model_name: str = "stub-embed",
+        fail: bool = False,
+    ) -> None:
+        self._vectors = vectors or {}
+        self._default = default
+        self._model_name = model_name
+        self.fail = fail
+        self.query_calls: list[str] = []
+        self.document_calls: list[tuple[str, ...]] = []
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @property
+    def dimensions(self) -> int:
+        return len(self._default)
+
+    async def embed_documents(
+        self, texts: tuple[str, ...]
+    ) -> tuple[tuple[float, ...], ...]:
+        if self.fail:
+            raise RagProviderError("Simulated embedding provider outage")
+        self.document_calls.append(texts)
+        return tuple(self._vectors.get(text, self._default) for text in texts)
+
+    async def embed_query(self, text: str) -> tuple[float, ...]:
+        if self.fail:
+            raise RagProviderError("Simulated embedding provider outage")
+        self.query_calls.append(text)
+        return self._vectors.get(text, self._default)
+
+
+class ScriptedLlmProvider:
+    """A controllable `LlmProvider` for RAG ask unit tests: returns a preset
+    `reply`, records how many times it was asked to generate (and the last
+    system/prompt it saw), and can simulate a model outage with `fail=True`.
+
+    The recorded call count is what lets a test prove the crucial "no model call
+    below the similarity floor" guarantee — the service must decline without ever
+    invoking generation."""
+
+    def __init__(
+        self,
+        reply: str = "A grounded answer from the retrieved code.",
+        *,
+        model_name: str = "scripted-llm",
+        fail: bool = False,
+    ) -> None:
+        self._reply = reply
+        self._model_name = model_name
+        self.fail = fail
+        self.calls = 0
+        self.last_system: str | None = None
+        self.last_prompt: str | None = None
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    async def generate(self, *, system: str, prompt: str) -> str:
+        self.calls += 1
+        self.last_system = system
+        self.last_prompt = prompt
+        if self.fail:
+            raise RagProviderError("Simulated LLM provider outage")
+        return self._reply
+
+
+class MappingSourceReader:
+    """A `SourceReader` backed by an in-memory `{path: text}` map, for indexing
+    unit tests that shouldn't touch the filesystem. A path absent from the map
+    reads as `None` (missing/unreadable), exactly as the real reader signals a
+    file it must skip — so the "one unreadable file is skipped, not fatal" path
+    is testable without crafting real unreadable files."""
+
+    def __init__(self, texts: dict[str, str]) -> None:
+        self._texts = texts
+        self.reads: list[tuple[str, str]] = []
+
+    def read_text(self, workspace_path: str, relative_path: str) -> str | None:
+        self.reads.append((workspace_path, relative_path))
+        return self._texts.get(relative_path)

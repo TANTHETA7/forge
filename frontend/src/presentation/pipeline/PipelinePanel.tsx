@@ -14,9 +14,12 @@
  * Depended on by: presentation/shell/AppShell.tsx.
  */
 
+import { useState } from "react";
+
 import { useRepositoryPipeline } from "@/application/pipeline/useRepositoryPipeline";
 import { ExplorerPanel } from "@/presentation/explorer/ExplorerPanel";
 import { GraphPanel } from "@/presentation/graph/GraphPanel";
+import { RagPanel } from "@/presentation/rag/RagPanel";
 import { ImportForm } from "@/presentation/repository/ImportForm";
 import { RepositoryCard } from "@/presentation/repository/RepositoryCard";
 import { StageCard } from "@/presentation/pipeline/StageCard";
@@ -37,6 +40,9 @@ export function PipelinePanel() {
     runRemaining,
     reset,
   } = useRepositoryPipeline();
+
+  const [navigatedFilePath, setNavigatedFilePath] = useState<string | null>(null);
+  const [navigatedSymbolName, setNavigatedSymbolName] = useState<string | null>(null);
 
   const parse = parseAction.data;
   const analysis = analyzeAction.data;
@@ -164,8 +170,8 @@ export function PipelinePanel() {
       {projection && (
         <p className="rounded-lg bg-emerald-950 px-4 py-3 text-sm text-emerald-300">
           Pipeline complete — {projection.nodeCount} nodes and {projection.relationshipCount}{" "}
-          relationships are queryable in Neo4j. Graph browsing and impact analysis are exposed by
-          the backend but have no UI yet.
+          relationships are queryable in Neo4j. Explore repository files, symbols, graph
+          intelligence, and grounded code Q&amp;A below.
         </p>
       )}
 
@@ -175,6 +181,12 @@ export function PipelinePanel() {
         projectId={project?.id ?? null}
         repositoryId={repository?.id ?? null}
         enabled={parse !== null}
+        selectedFilePath={navigatedFilePath}
+        selectedSymbolName={navigatedSymbolName}
+        onClearNavigation={() => {
+          setNavigatedFilePath(null);
+          setNavigatedSymbolName(null);
+        }}
       />
 
       {/* The graph lives in Neo4j, so it is only queryable once projection succeeded.
@@ -183,6 +195,22 @@ export function PipelinePanel() {
         projectId={project?.id ?? null}
         repositoryId={repository?.id ?? null}
         enabled={projection !== null}
+      />
+
+      {/* Code intelligence and grounded Q&A over indexed source chunks.
+          Available once parsing succeeds so source files and symbols are present. */}
+      <RagPanel
+        projectId={project?.id ?? null}
+        repositoryId={repository?.id ?? null}
+        enabled={parse !== null}
+        onNavigateToFile={(path) => {
+          setNavigatedFilePath(path);
+          document.getElementById("explorer-panel")?.scrollIntoView({ behavior: "smooth" });
+        }}
+        onNavigateToSymbol={(symbolName) => {
+          setNavigatedSymbolName(symbolName);
+          document.getElementById("explorer-panel")?.scrollIntoView({ behavior: "smooth" });
+        }}
       />
     </div>
   );

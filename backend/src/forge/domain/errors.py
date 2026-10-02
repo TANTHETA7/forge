@@ -66,3 +66,14 @@ class GraphUnavailableError(ForgeError):
     types by `infrastructure/graph/neo4j_graph_repository.py`; a raw driver
     exception never crosses out of infrastructure (see
     docs/architecture/05-knowledge-graph.md, "Failure handling")."""
+
+
+class RagProviderError(ForgeError):
+    """Raised when a RAG inference provider (Phase 7) can't reach or complete a
+    request — the Ollama server is unreachable, times out, returns a non-2xx
+    status, is missing the requested model, or returns a malformed response.
+    Translated from `httpx`/driver exceptions by
+    `infrastructure/rag/embeddings/` and `infrastructure/rag/llm/`; a raw client
+    exception never crosses out of infrastructure. Mapped to HTTP 503 by
+    `api/error_handlers.py`, mirroring `GraphUnavailableError` — a provider being
+    down is a transient service condition, never a fabricated answer."""

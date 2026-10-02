@@ -30,6 +30,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Form, UploadFile, status
 from fastapi import File as UploadFileParam
 
+from forge.api.ownership import verify_repository_ownership
 from forge.api.schemas import GitImportRequest, RepositoryResponse
 from forge.application.repository_import.service import RepositoryImportService
 from forge.core.config import Settings, get_settings
@@ -119,13 +120,19 @@ async def import_git_repository(
     return RepositoryResponse(**_to_response_kwargs(repository))
 
 
-@router.get("/{repository_id}", response_model=RepositoryResponse)
+@router.get(
+    "/{repository_id}",
+    response_model=RepositoryResponse,
+    dependencies=[Depends(verify_repository_ownership)],
+)
 async def get_repository(
     project_id: UUID,
     repository_id: UUID,
     service: RepositoryImportService = Depends(get_repository_import_service),
 ) -> RepositoryResponse:
-    """Fetch a repository's status/metadata by id."""
+    """Fetch a repository's status/metadata by id. 404 unless it belongs to
+    `project_id` (the import routes on this router have no `repository_id`, so
+    the ownership guard is attached here rather than to the whole router)."""
     repository = await service.get_repository(repository_id)
     return RepositoryResponse(**_to_response_kwargs(repository))
 

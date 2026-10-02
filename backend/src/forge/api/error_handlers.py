@@ -21,6 +21,7 @@ from forge.domain.errors import (
     ForgeError,
     GraphUnavailableError,
     NotFoundError,
+    RagProviderError,
     SourceImportError,
     SourceValidationError,
     UnsupportedRepositoryStateError,
@@ -42,6 +43,7 @@ _STATUS_BY_ERROR: list[tuple[type[ForgeError], int]] = [
     (SourceImportError, status.HTTP_422_UNPROCESSABLE_CONTENT),
     (UnsupportedRepositoryStateError, status.HTTP_409_CONFLICT),
     (GraphUnavailableError, status.HTTP_503_SERVICE_UNAVAILABLE),
+    (RagProviderError, status.HTTP_503_SERVICE_UNAVAILABLE),
     (WorkspaceError, status.HTTP_500_INTERNAL_SERVER_ERROR),
 ]
 

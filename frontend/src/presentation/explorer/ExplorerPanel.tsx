@@ -12,6 +12,8 @@
  * Depended on by: presentation/pipeline/PipelinePanel.tsx.
  */
 
+import { useEffect } from "react";
+
 import { useRepositoryExplorer } from "@/application/explorer/useRepositoryExplorer";
 import { FileList } from "@/presentation/explorer/FileList";
 import { ParseErrorList } from "@/presentation/explorer/ParseErrorList";
@@ -26,9 +28,19 @@ interface ExplorerPanelProps {
   repositoryId: string | null;
   /** False until the repository has been parsed — there is nothing to read before then. */
   enabled: boolean;
+  selectedFilePath?: string | null;
+  selectedSymbolName?: string | null;
+  onClearNavigation?: () => void;
 }
 
-export function ExplorerPanel({ projectId, repositoryId, enabled }: ExplorerPanelProps) {
+export function ExplorerPanel({
+  projectId,
+  repositoryId,
+  enabled,
+  selectedFilePath,
+  selectedSymbolName,
+  onClearNavigation,
+}: ExplorerPanelProps) {
   const {
     files,
     symbols,
@@ -46,12 +58,32 @@ export function ExplorerPanel({ projectId, repositoryId, enabled }: ExplorerPane
     previousPage,
   } = useRepositoryExplorer(projectId, repositoryId, enabled);
 
+  useEffect(() => {
+    if (selectedFilePath && files.data) {
+      const match = files.data.find((f) => f.path === selectedFilePath);
+      if (match) {
+        setFileFilter(match.id);
+      }
+    }
+  }, [selectedFilePath, files.data, setFileFilter]);
+
+  useEffect(() => {
+    if (selectedSymbolName && symbols.data) {
+      const match = symbols.data.find(
+        (s) => s.name === selectedSymbolName || s.qualifiedName === selectedSymbolName,
+      );
+      if (match) {
+        selectSymbol(match.id);
+      }
+    }
+  }, [selectedSymbolName, symbols.data, selectSymbol]);
+
   if (!enabled) return null;
 
   const selectedFile = files.data?.find((file) => file.id === fileFilter) ?? null;
 
   return (
-    <div className="space-y-4">
+    <div id="explorer-panel" className="space-y-4">
       <section className={SECTION_CLASS}>
         <h2 className={HEADING_CLASS}>5 · Files</h2>
         <FileList state={files} selectedFileId={fileFilter} onSelectFile={setFileFilter} />
@@ -63,7 +95,10 @@ export function ExplorerPanel({ projectId, repositoryId, enabled }: ExplorerPane
           {selectedFile && (
             <button
               type="button"
-              onClick={() => setFileFilter(null)}
+              onClick={() => {
+                setFileFilter(null);
+                onClearNavigation?.();
+              }}
               className="rounded-md bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300 hover:bg-neutral-700"
             >
               filtered to {selectedFile.path} ✕

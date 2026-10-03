@@ -31,3 +31,161 @@
   background-image: radial-gradient(#181818 1px, transparent 1px);
   background-size: 24px 24px;
 }
+
+/* Hardware-accelerated Animation Keyframes & Classes */
+
+@keyframes workspaceEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-workspace-enter {
+  animation: workspaceEnter 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes paletteEnter {
+  0% {
+    opacity: 0;
+    transform: scale(0.98) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes paletteExit {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.98) translateY(4px);
+  }
+}
+
+@keyframes backdropEnter {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes backdropExit {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-palette-enter {
+  animation: paletteEnter 160ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-palette-exit {
+  animation: paletteExit 140ms ease-in forwards;
+}
+
+.animate-backdrop-enter {
+  animation: backdropEnter 160ms ease-out forwards;
+}
+
+.animate-backdrop-exit {
+  animation: backdropExit 140ms ease-in forwards;
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #0d0d0d 0%,
+    #181818 50%,
+    #0d0d0d 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spinSlow 0.9s linear infinite;
+}
+
+/* Micro-interaction interactive button base */
+.forge-btn-interactive {
+  transition:
+    background-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.forge-btn-interactive:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Accessibility: Respect Reduced Motion Globally */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

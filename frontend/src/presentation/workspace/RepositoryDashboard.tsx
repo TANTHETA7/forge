@@ -146,7 +146,7 @@ export function RepositoryDashboard({
               type="button"
               disabled={!isParsed}
               onClick={() => navigateToExplorer()}
-              className="rounded-lg border border-forge-border bg-forge-elevated px-3 py-1.5 text-xs font-medium text-forge-text-primary hover:bg-forge-hover transition disabled:opacity-40"
+              className="rounded-lg border border-forge-border bg-forge-elevated px-3 py-1.5 text-xs font-medium text-forge-text-primary hover:bg-forge-hover forge-btn-interactive disabled:opacity-40"
             >
               Open Explorer →
             </button>
@@ -154,7 +154,7 @@ export function RepositoryDashboard({
               type="button"
               disabled={!isProjected}
               onClick={() => navigateToGraph()}
-              className="rounded-lg border border-forge-border bg-forge-elevated px-3 py-1.5 text-xs font-medium text-forge-text-primary hover:bg-forge-hover transition disabled:opacity-40"
+              className="rounded-lg border border-forge-border bg-forge-elevated px-3 py-1.5 text-xs font-medium text-forge-text-primary hover:bg-forge-hover forge-btn-interactive disabled:opacity-40"
             >
               Open Graph →
             </button>
@@ -162,7 +162,7 @@ export function RepositoryDashboard({
               type="button"
               disabled={!isParsed}
               onClick={() => navigateToIntelligence()}
-              className="rounded-lg bg-forge-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-forge-accent-hover transition disabled:opacity-40 shadow-sm"
+              className="rounded-lg bg-forge-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-forge-accent-hover forge-btn-interactive disabled:opacity-40 shadow-sm"
             >
               Ask Forge AI
             </button>
@@ -260,7 +260,7 @@ export function RepositoryDashboard({
               type="button"
               onClick={onRunRemaining}
               disabled={isBusy || projection !== null}
-              className="rounded-lg bg-forge-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-forge-accent-hover transition disabled:opacity-40"
+              className="rounded-lg bg-forge-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-forge-accent-hover forge-btn-interactive disabled:opacity-40"
             >
               {isBusy ? "Running stages…" : "Run remaining stages"}
             </button>
@@ -268,7 +268,7 @@ export function RepositoryDashboard({
               type="button"
               onClick={onReset}
               disabled={isBusy}
-              className="rounded-lg border border-forge-border bg-forge-elevated px-3 py-1.5 text-xs text-forge-text-secondary hover:text-forge-text-primary transition disabled:opacity-40"
+              className="rounded-lg border border-forge-border bg-forge-elevated px-3 py-1.5 text-xs text-forge-text-secondary hover:text-forge-text-primary forge-btn-interactive disabled:opacity-40"
             >
               Start over
             </button>
@@ -280,13 +280,21 @@ export function RepositoryDashboard({
           <div className="rounded-lg border border-forge-border bg-forge-panel p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-forge-text-muted">01 · PARSE</span>
-              <span
-                className={`font-mono text-[10px] font-semibold uppercase ${
-                  stageStates.parse === "ready" ? "text-emerald-400" : "text-neutral-500"
-                }`}
-              >
-                {stageStates.parse}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {stageStates.parse === "running" && (
+                  <svg className="h-2.5 w-2.5 animate-spin-slow text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                )}
+                <span
+                  className={`font-mono text-[10px] font-semibold uppercase ${
+                    stageStates.parse === "ready" ? "text-emerald-400" : stageStates.parse === "running" ? "text-amber-400 animate-pulse" : "text-neutral-500"
+                  }`}
+                >
+                  {stageStates.parse}
+                </span>
+              </div>
             </div>
             <div className="text-xs font-medium text-forge-text-primary">
               Tree-sitter Parser
@@ -303,7 +311,7 @@ export function RepositoryDashboard({
                 type="button"
                 onClick={onRunParse}
                 disabled={isBusy}
-                className="mt-2 w-full rounded border border-forge-border bg-forge-elevated py-1 text-xs text-forge-text-primary hover:bg-forge-hover transition disabled:opacity-40"
+                className="mt-2 w-full rounded border border-forge-border bg-forge-elevated py-1 text-xs text-forge-text-primary hover:bg-forge-hover forge-btn-interactive disabled:opacity-40"
               >
                 Run parse
               </button>
@@ -314,13 +322,21 @@ export function RepositoryDashboard({
           <div className="rounded-lg border border-forge-border bg-forge-panel p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-forge-text-muted">02 · ANALYZE</span>
-              <span
-                className={`font-mono text-[10px] font-semibold uppercase ${
-                  stageStates.analyze === "ready" ? "text-emerald-400" : "text-neutral-500"
-                }`}
-              >
-                {stageStates.analyze}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {stageStates.analyze === "running" && (
+                  <svg className="h-2.5 w-2.5 animate-spin-slow text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                )}
+                <span
+                  className={`font-mono text-[10px] font-semibold uppercase ${
+                    stageStates.analyze === "ready" ? "text-emerald-400" : stageStates.analyze === "running" ? "text-amber-400 animate-pulse" : "text-neutral-500"
+                  }`}
+                >
+                  {stageStates.analyze}
+                </span>
+              </div>
             </div>
             <div className="text-xs font-medium text-forge-text-primary">
               Dependency Resolution
@@ -337,7 +353,7 @@ export function RepositoryDashboard({
                 type="button"
                 onClick={onRunAnalyze}
                 disabled={isBusy || !isParsed}
-                className="mt-2 w-full rounded border border-forge-border bg-forge-elevated py-1 text-xs text-forge-text-primary hover:bg-forge-hover transition disabled:opacity-40"
+                className="mt-2 w-full rounded border border-forge-border bg-forge-elevated py-1 text-xs text-forge-text-primary hover:bg-forge-hover forge-btn-interactive disabled:opacity-40"
               >
                 Run analyze
               </button>
@@ -348,13 +364,21 @@ export function RepositoryDashboard({
           <div className="rounded-lg border border-forge-border bg-forge-panel p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-forge-text-muted">03 · GRAPH</span>
-              <span
-                className={`font-mono text-[10px] font-semibold uppercase ${
-                  stageStates.project === "ready" ? "text-emerald-400" : "text-neutral-500"
-                }`}
-              >
-                {stageStates.project}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {stageStates.project === "running" && (
+                  <svg className="h-2.5 w-2.5 animate-spin-slow text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                )}
+                <span
+                  className={`font-mono text-[10px] font-semibold uppercase ${
+                    stageStates.project === "ready" ? "text-emerald-400" : stageStates.project === "running" ? "text-amber-400 animate-pulse" : "text-neutral-500"
+                  }`}
+                >
+                  {stageStates.project}
+                </span>
+              </div>
             </div>
             <div className="text-xs font-medium text-forge-text-primary">
               Neo4j Projection
@@ -371,7 +395,7 @@ export function RepositoryDashboard({
                 type="button"
                 onClick={onRunProject}
                 disabled={isBusy || stageStates.analyze !== "ready"}
-                className="mt-2 w-full rounded border border-forge-border bg-forge-elevated py-1 text-xs text-forge-text-primary hover:bg-forge-hover transition disabled:opacity-40"
+                className="mt-2 w-full rounded border border-forge-border bg-forge-elevated py-1 text-xs text-forge-text-primary hover:bg-forge-hover forge-btn-interactive disabled:opacity-40"
               >
                 Project graph
               </button>
@@ -382,13 +406,21 @@ export function RepositoryDashboard({
           <div className="rounded-lg border border-forge-border bg-forge-panel p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-forge-text-muted">04 · AI INDEX</span>
-              <span
-                className={`font-mono text-[10px] font-semibold uppercase ${
-                  isIndexed ? "text-emerald-400" : "text-neutral-500"
-                }`}
-              >
-                {isIndexed ? "ready" : "pending"}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {indexPending && (
+                  <svg className="h-2.5 w-2.5 animate-spin-slow text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                )}
+                <span
+                  className={`font-mono text-[10px] font-semibold uppercase ${
+                    isIndexed ? "text-emerald-400" : indexPending ? "text-amber-400 animate-pulse" : "text-neutral-500"
+                  }`}
+                >
+                  {isIndexed ? "ready" : indexPending ? "indexing" : "pending"}
+                </span>
+              </div>
             </div>
             <div className="text-xs font-medium text-forge-text-primary">
               Vector Indexing
@@ -405,7 +437,7 @@ export function RepositoryDashboard({
                 type="button"
                 onClick={onTriggerIndex}
                 disabled={isBusy || indexPending || !isParsed}
-                className="mt-2 w-full rounded border border-forge-border bg-forge-elevated py-1 text-xs text-forge-text-primary hover:bg-forge-hover transition disabled:opacity-40"
+                className="mt-2 w-full rounded border border-forge-border bg-forge-elevated py-1 text-xs text-forge-text-primary hover:bg-forge-hover forge-btn-interactive disabled:opacity-40"
               >
                 {indexPending ? "Indexing…" : "Index repository"}
               </button>

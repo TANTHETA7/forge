@@ -38,7 +38,16 @@ export function AsyncSection<T>({
   children,
 }: AsyncSectionProps<T>) {
   if (state.isLoading) {
-    return <p className="py-3 text-sm text-neutral-500">{loadingMessage}</p>;
+    return (
+      <div className="py-3 space-y-2">
+        <p className="text-sm text-neutral-500 animate-pulse">{loadingMessage}</p>
+        <div className="space-y-1.5 pt-1">
+          <div className="h-3 w-4/5 rounded skeleton-shimmer" />
+          <div className="h-3 w-3/5 rounded skeleton-shimmer" />
+          <div className="h-3 w-2/3 rounded skeleton-shimmer" />
+        </div>
+      </div>
+    );
   }
 
   if (state.error) {

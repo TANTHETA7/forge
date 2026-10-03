@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useWorkspace } from "@/presentation/workspace/WorkspaceContext";
 import type { ParsedFile, CodeSymbol } from "@/domain/explorer/types";
 
@@ -39,21 +39,42 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClose = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    closeTimerRef.current = setTimeout(() => {
+      setCommandPaletteOpen(false);
+      setIsClosing(false);
+    }, 140);
+  }, [isClosing, setCommandPaletteOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   // Global keyboard listener for Command+K / Ctrl+K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setCommandPaletteOpen(!commandPaletteOpen);
+        if (commandPaletteOpen) {
+          handleClose();
+        } else {
+          setCommandPaletteOpen(true);
+        }
       } else if (e.key === "Escape" && commandPaletteOpen) {
         e.preventDefault();
-        setCommandPaletteOpen(false);
+        handleClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [commandPaletteOpen, setCommandPaletteOpen]);
+  }, [commandPaletteOpen, handleClose, setCommandPaletteOpen]);
 
   // Focus input and reset search when opened
   useEffect(() => {
@@ -236,11 +257,15 @@ export function CommandPalette({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/80 backdrop-blur-sm"
-      onClick={() => setCommandPaletteOpen(false)}
+      className={`fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/80 backdrop-blur-sm ${
+        isClosing ? "animate-backdrop-exit" : "animate-backdrop-enter"
+      }`}
+      onClick={handleClose}
     >
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl border border-forge-border bg-forge-card shadow-2xl transition-all"
+        className={`w-full max-w-2xl overflow-hidden rounded-xl border border-forge-border bg-forge-card shadow-2xl ${
+          isClosing ? "animate-palette-exit" : "animate-palette-enter"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search Input Bar */}
@@ -290,7 +315,8 @@ export function CommandPalette({
                   key={item.id}
                   onClick={() => item.action()}
                   onMouseEnter={() => setSelectedIndex(index)}
-                  className={`flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-xs transition ${
+                  style={{ animationDelay: `${Math.min(index * 15, 120)}ms` }}
+                  className={`flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-xs transition duration-150 animate-fade-in-up ${
                     isSelected
                       ? "bg-forge-accent/15 text-forge-text-primary ring-1 ring-forge-accent/40"
                       : "text-forge-text-secondary hover:bg-forge-elevated"

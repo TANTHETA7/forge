@@ -133,18 +133,36 @@ export function RagPanel({
               onClick={() => void rag.handleIndex()}
               disabled={rag.isBusy}
               className={
-                "rounded-md px-3 py-1.5 text-xs font-medium text-white transition " +
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white forge-btn-interactive " +
                 (isIndexed
                   ? "border border-forge-border bg-forge-elevated hover:bg-forge-panel text-forge-text-primary"
                   : "bg-forge-accent hover:bg-forge-accent-hover text-white") +
                 " disabled:cursor-not-allowed disabled:opacity-50"
               }
             >
-              {rag.indexing.isPending
-                ? "Indexing chunks..."
-                : isIndexed
-                  ? "Re-index repository"
-                  : "Index repository"}
+              {rag.indexing.isPending && (
+                <svg
+                  className="h-3 w-3 animate-spin-slow text-white"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              )}
+              <span>
+                {rag.indexing.isPending
+                  ? "Indexing chunks..."
+                  : isIndexed
+                    ? "Re-index repository"
+                    : "Index repository"}
+              </span>
             </button>
           </div>
 
@@ -223,19 +241,67 @@ export function RagPanel({
               type="submit"
               disabled={!rag.canAsk}
               className={
-                "rounded-md bg-forge-accent px-4 py-1.5 text-xs font-medium text-white transition " +
+                "inline-flex items-center gap-1.5 rounded-md bg-forge-accent px-4 py-1.5 text-xs font-medium text-white forge-btn-interactive " +
                 "hover:bg-forge-accent-hover disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
               }
             >
-              {rag.ask.isPending ? "Searching & reasoning…" : "Ask Forge"}
+              {rag.ask.isPending && (
+                <svg
+                  className="h-3 w-3 animate-spin-slow text-white"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              )}
+              <span>{rag.ask.isPending ? "Searching & reasoning…" : "Ask Forge"}</span>
             </button>
           </div>
         </form>
 
+        {/* Loading Skeleton during reasoning */}
+        {rag.ask.isPending && (
+          <div className="mt-4 space-y-3 border-t border-forge-border pt-4 animate-fade-in">
+            <div className="flex items-center gap-2 text-xs text-forge-accent">
+              <svg
+                className="h-3.5 w-3.5 animate-spin-slow text-forge-accent"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+              >
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+              <span>Searching repository vectors and synthesizing code intelligence…</span>
+            </div>
+            <div className="rounded-md border border-forge-border bg-forge-card p-4 space-y-2.5">
+              <div className="h-3 w-5/6 rounded skeleton-shimmer" />
+              <div className="h-3 w-full rounded skeleton-shimmer" />
+              <div className="h-3 w-4/6 rounded skeleton-shimmer" />
+            </div>
+            <div className="space-y-2 pt-1">
+              <div className="h-14 w-full rounded-lg border border-forge-border bg-forge-panel skeleton-shimmer" />
+              <div className="h-14 w-full rounded-lg border border-forge-border bg-forge-panel skeleton-shimmer" />
+            </div>
+          </div>
+        )}
+
         {rag.ask.error && (
           <div
             role="alert"
-            className="mt-3 rounded-md border border-red-900/50 bg-red-950/40 p-3 text-xs text-red-300"
+            className="mt-3 rounded-md border border-red-900/50 bg-red-950/40 p-3 text-xs text-red-300 animate-fade-in"
           >
             <p className="font-medium">Query failed</p>
             <p className="mt-0.5 text-red-400">{rag.ask.error}</p>
@@ -244,7 +310,7 @@ export function RagPanel({
 
         {/* Answer Section */}
         {currentAnswer && (
-          <div className="mt-4 space-y-3 border-t border-neutral-800/80 pt-4">
+          <div className="mt-4 space-y-3 border-t border-neutral-800/80 pt-4 animate-fade-in">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
                 Answer
@@ -286,6 +352,7 @@ export function RagPanel({
                     <SourceCitationCard
                       key={`${source.path}:${source.startLine}-${source.endLine}:${idx}`}
                       source={source}
+                      animationDelay={Math.min(idx * 30, 150)}
                       isSelected={
                         rag.selectedSource?.path === source.path &&
                         rag.selectedSource?.startLine === source.startLine
@@ -344,6 +411,7 @@ interface SourceCitationCardProps {
   onNavigateFile?: (path: string) => void;
   onNavigateSymbol?: (symbolName: string) => void;
   onNavigateGraph?: (target: string) => void;
+  animationDelay?: number;
 }
 
 function SourceCitationCard({
@@ -353,14 +421,16 @@ function SourceCitationCard({
   onNavigateFile,
   onNavigateSymbol,
   onNavigateGraph,
+  animationDelay = 0,
 }: SourceCitationCardProps) {
   const matchPercent = Math.round(source.score * 100);
 
   return (
     <div
       onClick={onSelect}
+      style={{ animationDelay: `${animationDelay}ms` }}
       className={
-        "cursor-pointer rounded-lg border p-3 transition text-xs " +
+        "cursor-pointer rounded-lg border p-3 transition duration-150 text-xs animate-fade-in-up " +
         (isSelected
           ? "border-forge-accent/70 bg-forge-card ring-1 ring-forge-accent/50 shadow-md"
           : "border-forge-border bg-forge-panel/70 hover:border-neutral-700 hover:bg-forge-elevated")
@@ -403,7 +473,7 @@ function SourceCitationCard({
       )}
 
       {isSelected && source.snippet && (
-        <div className="mt-2.5 rounded-lg bg-forge-bg p-3 border border-forge-border">
+        <div className="mt-2.5 rounded-lg bg-forge-bg p-3 border border-forge-border animate-fade-in">
           <div className="mb-1.5 flex items-center justify-between text-[10px] font-mono text-forge-text-muted">
             <span>Retrieved code excerpt:</span>
             <span>Lines {source.startLine}–{source.endLine}</span>

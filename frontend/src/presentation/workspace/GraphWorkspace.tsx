@@ -136,25 +136,53 @@ export function GraphWorkspace({
         {/* Graph Canvas */}
         <div className="flex-1 p-3 overflow-hidden flex flex-col justify-between">
           {isLoading && (
-            <div className="flex-1 flex items-center justify-center text-xs text-forge-text-muted">
-              Loading graph from Neo4j…
+            <div className="flex-1 flex flex-col items-center justify-center space-y-4 p-8 animate-fade-in">
+              <div className="relative flex items-center justify-center">
+                <div className="h-16 w-16 rounded-full border border-forge-accent/20 bg-forge-accent/5 animate-pulse" />
+                <svg
+                  className="absolute h-8 w-8 animate-spin-slow text-forge-accent"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              </div>
+              <div className="text-center space-y-1">
+                <p className="text-xs font-mono font-medium text-forge-text-primary">
+                  Loading graph from Neo4j…
+                </p>
+                <p className="text-[11px] text-forge-text-muted">
+                  Resolving AST topology and relationship weights
+                </p>
+              </div>
+              <div className="w-64 space-y-2 pt-2">
+                <div className="h-2 w-full rounded skeleton-shimmer" />
+                <div className="h-2 w-4/5 mx-auto rounded skeleton-shimmer" />
+              </div>
             </div>
           )}
 
           {error && (
-            <div role="alert" className="p-4 rounded-xl border border-red-900 bg-red-950/40 text-xs text-red-300">
+            <div role="alert" className="p-4 rounded-xl border border-red-900 bg-red-950/40 text-xs text-red-300 animate-fade-in">
               {error}
             </div>
           )}
 
           {isEmpty && (
-            <div className="flex-1 flex items-center justify-center text-xs text-forge-text-muted">
+            <div className="flex-1 flex items-center justify-center text-xs text-forge-text-muted animate-fade-in">
               The projected graph contains no nodes.
             </div>
           )}
 
           {!isLoading && !error && !isEmpty && (
-            <div className="flex-1 flex flex-col justify-between">
+            <div className="flex-1 flex flex-col justify-between animate-fade-in">
               <GraphCanvas
                 graph={graph}
                 selectedNodeId={selectedNode?.id ?? null}
@@ -168,7 +196,7 @@ export function GraphWorkspace({
 
       {/* Right Contextual Inspection Panel */}
       {sidePanelOpen && (
-        <div className="w-96 flex-shrink-0 border-l border-forge-border bg-forge-sidebar/70 flex flex-col justify-between overflow-y-auto">
+        <div className="w-96 flex-shrink-0 border-l border-forge-border bg-forge-sidebar/70 flex flex-col justify-between overflow-y-auto animate-fade-in">
           <div className="p-4 space-y-4">
             <div className="flex items-center justify-between border-b border-forge-border pb-2.5">
               <span className="text-xs font-semibold uppercase tracking-wider text-forge-text-muted">

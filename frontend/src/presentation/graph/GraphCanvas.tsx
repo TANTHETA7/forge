@@ -147,7 +147,7 @@ export function GraphCanvas({
           <button
             type="button"
             onClick={() => setKindFilter("all")}
-            className={`rounded px-2 py-0.5 text-[11px] transition ${
+            className={`rounded px-2 py-0.5 text-[11px] forge-btn-interactive ${
               kindFilter === "all"
                 ? "bg-forge-elevated text-forge-text-primary font-medium border border-forge-border"
                 : "text-forge-text-muted hover:text-forge-text-primary"
@@ -160,7 +160,7 @@ export function GraphCanvas({
               key={kind}
               type="button"
               onClick={() => setKindFilter(kind)}
-              className={`rounded px-2 py-0.5 text-[11px] transition ${
+              className={`rounded px-2 py-0.5 text-[11px] forge-btn-interactive ${
                 kindFilter === kind
                   ? "bg-forge-elevated text-forge-text-primary font-medium border border-forge-border"
                   : "text-forge-text-muted hover:text-forge-text-primary"
@@ -176,7 +176,7 @@ export function GraphCanvas({
           <button
             type="button"
             onClick={() => setFocusMode(!focusMode)}
-            className={`flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-medium transition ${
+            className={`flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-medium forge-btn-interactive ${
               focusMode
                 ? "border-forge-accent/40 bg-forge-accent/15 text-forge-accent"
                 : "border-forge-border bg-forge-elevated text-forge-text-muted hover:text-forge-text-primary"
@@ -204,6 +204,7 @@ export function GraphCanvas({
           nodesDraggable={false}
           nodesConnectable={false}
           fitView
+          fitViewOptions={{ duration: 300 }}
           minZoom={0.1}
           colorMode="dark"
         >

@@ -177,7 +177,7 @@ export function LeftSidebar({
                   type="button"
                   disabled={!item.enabled}
                   onClick={() => setSection(item.id)}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition ${
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium forge-btn-interactive ${
                     active
                       ? "bg-forge-elevated text-forge-text-primary ring-1 ring-forge-border shadow-sm"
                       : item.enabled
@@ -233,7 +233,7 @@ export function LeftSidebar({
                 type="button"
                 onClick={onRunRemaining}
                 disabled={isBusy}
-                className="mt-2 w-full rounded-md bg-forge-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-forge-accent-hover transition disabled:opacity-50"
+                className="mt-2 w-full rounded-md bg-forge-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-forge-accent-hover forge-btn-interactive disabled:opacity-50"
               >
                 {isBusy ? "Running stages…" : "Run remaining stages"}
               </button>
@@ -243,7 +243,7 @@ export function LeftSidebar({
               type="button"
               onClick={onReset}
               disabled={isBusy}
-              className="w-full rounded-md border border-forge-border bg-forge-card px-2 py-1 text-[11px] text-forge-text-muted hover:text-forge-text-secondary transition disabled:opacity-50"
+              className="w-full rounded-md border border-forge-border bg-forge-card px-2 py-1 text-[11px] text-forge-text-muted hover:text-forge-text-secondary forge-btn-interactive disabled:opacity-50"
             >
               Start over
             </button>
@@ -272,9 +272,33 @@ function StageRow({
 }) {
   return (
     <div className="flex items-center justify-between text-[11px]">
-      <span className="text-forge-text-muted">{label}</span>
+      <div className="flex items-center gap-1.5">
+        {state === "running" && (
+          <svg
+            className="h-2.5 w-2.5 animate-spin-slow text-amber-400"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
+          </svg>
+        )}
+        <span className="text-forge-text-muted">{label}</span>
+      </div>
       <span
-        className={`font-mono text-[10px] font-medium ${
+        className={`font-mono text-[10px] font-medium transition-colors duration-150 ${
           state === "done"
             ? "text-emerald-400"
             : state === "running"

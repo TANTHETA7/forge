@@ -113,66 +113,68 @@ function WorkspaceView() {
 
         {/* Dynamic Workspace Container */}
         <main className="flex-1 overflow-y-auto bg-forge-bg relative">
-          {section === "overview" && (
-            <RepositoryDashboard
-              project={project}
-              repository={repository}
-              stageStates={stageStates}
-              isBusy={isBusy}
-              parse={parseAction.data}
-              analysis={analyzeAction.data}
-              projection={projectionAction.data}
-              graphStats={graphState.statistics.data}
-              insights={graphState.insights.data}
-              indexStatus={ragState.status.data}
-              isIndexed={ragState.isIndexed}
-              importPending={importAction.isPending}
-              importError={importAction.error}
-              onImport={(name, src) => void importAction.run(name, src)}
-              onRunParse={() => void parseAction.run()}
-              onRunAnalyze={() => void analyzeAction.run()}
-              onRunProject={() => void projectionAction.run()}
-              onRunRemaining={runRemaining}
-              onReset={reset}
-              onTriggerIndex={() => void ragState.handleIndex()}
-              indexPending={ragState.indexing.isPending}
-            />
-          )}
+          <div key={section} className="animate-workspace-enter h-full">
+            {section === "overview" && (
+              <RepositoryDashboard
+                project={project}
+                repository={repository}
+                stageStates={stageStates}
+                isBusy={isBusy}
+                parse={parseAction.data}
+                analysis={analyzeAction.data}
+                projection={projectionAction.data}
+                graphStats={graphState.statistics.data}
+                insights={graphState.insights.data}
+                indexStatus={ragState.status.data}
+                isIndexed={ragState.isIndexed}
+                importPending={importAction.isPending}
+                importError={importAction.error}
+                onImport={(name, src) => void importAction.run(name, src)}
+                onRunParse={() => void parseAction.run()}
+                onRunAnalyze={() => void analyzeAction.run()}
+                onRunProject={() => void projectionAction.run()}
+                onRunRemaining={runRemaining}
+                onReset={reset}
+                onTriggerIndex={() => void ragState.handleIndex()}
+                indexPending={ragState.indexing.isPending}
+              />
+            )}
 
-          {section === "explorer" && (
-            <ExplorerWorkspace
-              projectId={project?.id ?? null}
-              repositoryId={repository?.id ?? null}
-              enabled={isParsed}
-              graphNodes={graphNodes}
-            />
-          )}
+            {section === "explorer" && (
+              <ExplorerWorkspace
+                projectId={project?.id ?? null}
+                repositoryId={repository?.id ?? null}
+                enabled={isParsed}
+                graphNodes={graphNodes}
+              />
+            )}
 
-          {section === "graph" && (
-            <GraphWorkspace
-              projectId={project?.id ?? null}
-              repositoryId={repository?.id ?? null}
-              enabled={isProjected}
-              onNodesLoaded={handleNodesLoaded}
-            />
-          )}
+            {section === "graph" && (
+              <GraphWorkspace
+                projectId={project?.id ?? null}
+                repositoryId={repository?.id ?? null}
+                enabled={isProjected}
+                onNodesLoaded={handleNodesLoaded}
+              />
+            )}
 
-          {section === "impact" && (
-            <ImpactWorkspace
-              projectId={project?.id ?? null}
-              repositoryId={repository?.id ?? null}
-              enabled={isProjected}
-              graphNodes={graphNodes}
-            />
-          )}
+            {section === "impact" && (
+              <ImpactWorkspace
+                projectId={project?.id ?? null}
+                repositoryId={repository?.id ?? null}
+                enabled={isProjected}
+                graphNodes={graphNodes}
+              />
+            )}
 
-          {section === "intelligence" && (
-            <IntelligenceWorkspace
-              projectId={project?.id ?? null}
-              repositoryId={repository?.id ?? null}
-              enabled={isParsed}
-            />
-          )}
+            {section === "intelligence" && (
+              <IntelligenceWorkspace
+                projectId={project?.id ?? null}
+                repositoryId={repository?.id ?? null}
+                enabled={isParsed}
+              />
+            )}
+          </div>
         </main>
       </div>
 

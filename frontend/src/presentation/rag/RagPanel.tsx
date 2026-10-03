@@ -10,19 +10,22 @@
  * Depended on by: presentation/pipeline/PipelinePanel.tsx.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useRepositoryRag } from "@/application/rag/useRepositoryRag";
 import type { SourceReference } from "@/domain/rag/types";
 import { SummaryStat } from "@/presentation/shared/SummaryStat";
 
-const SECTION_CLASS = "rounded-lg border border-neutral-800 bg-neutral-900/40 p-4";
-const HEADING_CLASS = "mb-3 text-sm font-medium uppercase tracking-wide text-neutral-400";
+const SECTION_CLASS = "rounded-xl border border-forge-border bg-forge-card p-5";
+const HEADING_CLASS = "mb-3 text-xs font-semibold uppercase tracking-wider text-forge-text-muted";
 
 const EXAMPLE_QUESTIONS = [
+  "Explain this architecture",
+  "How does authentication work?",
+  "What depends on this symbol?",
+  "What would be affected if this changes?",
+  "Trace this request flow",
   "What is the main architecture and responsibility of this codebase?",
-  "How are dependencies analyzed and resolved?",
-  "Where and how is error handling implemented?",
 ] as const;
 
 interface RagPanelProps {
@@ -32,6 +35,8 @@ interface RagPanelProps {
   enabled: boolean;
   onNavigateToFile?: (path: string) => void;
   onNavigateToSymbol?: (symbolName: string) => void;
+  onNavigateToGraph?: (target: string) => void;
+  initialQuestion?: string | null;
 }
 
 export function RagPanel({
@@ -40,9 +45,20 @@ export function RagPanel({
   enabled,
   onNavigateToFile,
   onNavigateToSymbol,
+  onNavigateToGraph,
+  initialQuestion,
 }: RagPanelProps) {
   const rag = useRepositoryRag(projectId, repositoryId, enabled);
   const [activeChip, setActiveChip] = useState<string | null>(null);
+
+  const { setQuestion, question } = rag;
+
+  // Sync initial question if supplied
+  useEffect(() => {
+    if (initialQuestion && initialQuestion !== question) {
+      setQuestion(initialQuestion);
+    }
+  }, [initialQuestion, question, setQuestion]);
 
   if (!enabled) return null;
 
@@ -119,8 +135,8 @@ export function RagPanel({
               className={
                 "rounded-md px-3 py-1.5 text-xs font-medium text-white transition " +
                 (isIndexed
-                  ? "bg-neutral-800 hover:bg-neutral-700 text-neutral-200"
-                  : "bg-emerald-600 hover:bg-emerald-500") +
+                  ? "border border-forge-border bg-forge-elevated hover:bg-forge-panel text-forge-text-primary"
+                  : "bg-forge-accent hover:bg-forge-accent-hover text-white") +
                 " disabled:cursor-not-allowed disabled:opacity-50"
               }
             >
@@ -161,8 +177,8 @@ export function RagPanel({
                 className={
                   "rounded-full border px-2.5 py-1 text-xs text-left transition " +
                   (activeChip === example
-                    ? "border-emerald-700 bg-emerald-950 text-emerald-200"
-                    : "border-neutral-800 bg-neutral-900/60 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200") +
+                    ? "border-forge-accent bg-forge-accent/20 text-forge-accent font-medium"
+                    : "border-forge-border bg-forge-panel text-forge-text-muted hover:border-neutral-700 hover:text-forge-text-primary") +
                   " disabled:cursor-not-allowed disabled:opacity-40"
                 }
               >
@@ -189,8 +205,8 @@ export function RagPanel({
               }
               disabled={!isIndexed || rag.isBusy}
               className={
-                "w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm " +
-                "text-neutral-100 placeholder-neutral-500 focus:border-emerald-600 focus:outline-none " +
+                "w-full rounded-md border border-forge-border bg-forge-panel px-3 py-2 text-sm " +
+                "text-forge-text-primary placeholder-forge-text-muted focus:border-forge-accent focus:outline-none " +
                 "disabled:cursor-not-allowed disabled:bg-neutral-900/50 disabled:text-neutral-600"
               }
             />
@@ -207,8 +223,8 @@ export function RagPanel({
               type="submit"
               disabled={!rag.canAsk}
               className={
-                "rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition " +
-                "hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                "rounded-md bg-forge-accent px-4 py-1.5 text-xs font-medium text-white transition " +
+                "hover:bg-forge-accent-hover disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
               }
             >
               {rag.ask.isPending ? "Searching & reasoning…" : "Ask Forge"}
@@ -284,6 +300,7 @@ export function RagPanel({
                       }
                       onNavigateFile={onNavigateToFile}
                       onNavigateSymbol={onNavigateToSymbol}
+                      onNavigateGraph={onNavigateToGraph}
                     />
                   ))}
                 </div>
@@ -326,6 +343,7 @@ interface SourceCitationCardProps {
   onSelect: () => void;
   onNavigateFile?: (path: string) => void;
   onNavigateSymbol?: (symbolName: string) => void;
+  onNavigateGraph?: (target: string) => void;
 }
 
 function SourceCitationCard({
@@ -334,6 +352,7 @@ function SourceCitationCard({
   onSelect,
   onNavigateFile,
   onNavigateSymbol,
+  onNavigateGraph,
 }: SourceCitationCardProps) {
   const matchPercent = Math.round(source.score * 100);
 
@@ -341,16 +360,16 @@ function SourceCitationCard({
     <div
       onClick={onSelect}
       className={
-        "cursor-pointer rounded border p-2.5 transition text-xs " +
+        "cursor-pointer rounded-lg border p-3 transition text-xs " +
         (isSelected
-          ? "border-emerald-700 bg-neutral-900/90 ring-1 ring-emerald-700"
-          : "border-neutral-800/80 bg-neutral-950/50 hover:border-neutral-700 hover:bg-neutral-900/40")
+          ? "border-forge-accent/70 bg-forge-card ring-1 ring-forge-accent/50 shadow-md"
+          : "border-forge-border bg-forge-panel/70 hover:border-neutral-700 hover:bg-forge-elevated")
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+            className={`rounded px-1.5 py-0.5 text-[10px] font-mono font-semibold uppercase tracking-wider ${
               source.via === "graph"
                 ? "bg-purple-950 text-purple-300 border border-purple-800"
                 : "bg-emerald-950 text-emerald-300 border border-emerald-800"
@@ -358,25 +377,25 @@ function SourceCitationCard({
           >
             {source.via}
           </span>
-          <span className="font-mono text-neutral-200 font-medium">{source.path}</span>
-          <span className="font-mono text-neutral-500">
+          <span className="font-mono text-forge-text-primary font-medium">{source.path}</span>
+          <span className="font-mono text-forge-text-muted">
             L{source.startLine}–L{source.endLine}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="rounded bg-neutral-800/80 px-1.5 py-0.5 text-[11px] font-medium text-neutral-300">
+          <span className="rounded bg-forge-elevated border border-forge-border px-2 py-0.5 text-[11px] font-mono font-medium text-forge-text-secondary">
             {matchPercent}% match
           </span>
         </div>
       </div>
 
       {source.symbolQualifiedName && (
-        <div className="mt-1.5 flex items-center gap-2 text-neutral-400">
-          <span className="text-neutral-500">Symbol:</span>
-          <span className="font-mono text-neutral-300">{source.symbolQualifiedName}</span>
+        <div className="mt-1.5 flex items-center gap-2 text-forge-text-secondary">
+          <span className="text-forge-text-muted">Symbol:</span>
+          <span className="font-mono text-forge-text-primary">{source.symbolQualifiedName}</span>
           {source.symbolKind && (
-            <span className="rounded-full bg-neutral-800 px-1.5 py-0.2 text-[10px] text-neutral-400">
+            <span className="rounded-full bg-forge-elevated px-1.5 py-0.2 font-mono text-[10px] text-forge-text-muted">
               {source.symbolKind}
             </span>
           )}
@@ -384,19 +403,19 @@ function SourceCitationCard({
       )}
 
       {isSelected && source.snippet && (
-        <div className="mt-2.5 rounded bg-neutral-950 p-2.5 border border-neutral-800/80">
-          <div className="mb-1 flex items-center justify-between text-[10px] text-neutral-400">
+        <div className="mt-2.5 rounded-lg bg-forge-bg p-3 border border-forge-border">
+          <div className="mb-1.5 flex items-center justify-between text-[10px] font-mono text-forge-text-muted">
             <span>Retrieved code excerpt:</span>
             <span>Lines {source.startLine}–{source.endLine}</span>
           </div>
-          <pre className="max-h-48 overflow-auto font-mono text-[11px] leading-relaxed text-neutral-200">
+          <pre className="max-h-56 overflow-auto font-mono text-[11px] leading-relaxed text-forge-text-primary">
             <code>{source.snippet}</code>
           </pre>
         </div>
       )}
 
       {isSelected && (
-        <div className="mt-2.5 flex items-center gap-2 border-t border-neutral-800/80 pt-2 text-[11px]">
+        <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-forge-border pt-2 text-[11px]">
           {onNavigateFile && (
             <button
               type="button"
@@ -404,7 +423,7 @@ function SourceCitationCard({
                 e.stopPropagation();
                 onNavigateFile(source.path);
               }}
-              className="rounded bg-neutral-800 px-2 py-0.5 text-neutral-300 hover:bg-neutral-700"
+              className="rounded-md border border-forge-border bg-forge-elevated px-2 py-0.5 text-forge-text-secondary hover:text-forge-text-primary hover:bg-forge-hover transition"
             >
               Filter in Explorer
             </button>
@@ -416,12 +435,24 @@ function SourceCitationCard({
                 e.stopPropagation();
                 if (source.symbolQualifiedName) onNavigateSymbol(source.symbolQualifiedName);
               }}
-              className="rounded bg-neutral-800 px-2 py-0.5 text-neutral-300 hover:bg-neutral-700"
+              className="rounded-md border border-forge-border bg-forge-elevated px-2 py-0.5 text-forge-text-secondary hover:text-forge-text-primary hover:bg-forge-hover transition"
             >
               Inspect Symbol
             </button>
           )}
-          <span className="text-neutral-500 ml-auto">
+          {onNavigateGraph && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onNavigateGraph(source.symbolQualifiedName ?? source.path);
+              }}
+              className="rounded-md border border-forge-accent/40 bg-forge-accent/10 px-2 py-0.5 text-forge-accent hover:bg-forge-accent/20 transition"
+            >
+              Show on Graph
+            </button>
+          )}
+          <span className="text-forge-text-muted ml-auto font-mono text-[10px]">
             Lines {source.startLine} to {source.endLine}
           </span>
         </div>

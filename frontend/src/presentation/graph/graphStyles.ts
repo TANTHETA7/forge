@@ -57,14 +57,14 @@ export const NODE_KIND_ORDER: readonly NodeStyleKey[] = [
  * so the dependency edges Phase 4 resolved — imports, calls, inherits — stand out.
  */
 export const RELATIONSHIP_COLOR: Record<string, string> = {
-  contains: "#3f3f46",
-  defines: "#52525b",
-  imports: "#38bdf8",
-  calls: "#fbbf24",
-  inherits: "#a78bfa",
+  contains: "#282828",
+  defines: "#333333",
+  imports: "#444444",
+  calls: "#555555",
+  inherits: "#444444",
 };
 
-export const UNKNOWN_RELATIONSHIP_COLOR = "#71717a";
+export const UNKNOWN_RELATIONSHIP_COLOR = "#333333";
 
 export function relationshipColor(kind: string): string {
   return RELATIONSHIP_COLOR[kind] ?? UNKNOWN_RELATIONSHIP_COLOR;

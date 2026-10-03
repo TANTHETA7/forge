@@ -19,7 +19,7 @@
  * Depended on by: presentation/graph/GraphPanel.tsx.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Background,
   Controls,
@@ -43,34 +43,87 @@ interface GraphCanvasProps {
   graph: RenderableGraph;
   selectedNodeId: string | null;
   onSelectNode: (node: GraphNode) => void;
+  heightClass?: string;
 }
 
-export function GraphCanvas({ graph, selectedNodeId, onSelectNode }: GraphCanvasProps) {
-  // Positions depend only on the nodes, never on selection.
-  const positioned = useMemo(() => layoutGraph(graph.nodes), [graph.nodes]);
+export function GraphCanvas({
+  graph,
+  selectedNodeId,
+  onSelectNode,
+  heightClass = "h-[540px]",
+}: GraphCanvasProps) {
+  const [focusMode, setFocusMode] = useState(true);
+  const [kindFilter, setKindFilter] = useState<string>("all");
+
+  // Filter nodes if kindFilter is active
+  const filteredNodes = useMemo(() => {
+    if (kindFilter === "all") return graph.nodes;
+    return graph.nodes.filter((n) => n.kind === kindFilter);
+  }, [graph.nodes, kindFilter]);
+
+  // Positions depend only on the filtered nodes
+  const positioned = useMemo(() => layoutGraph(filteredNodes), [filteredNodes]);
+
+  // Compute 1-hop neighbors of selected node for Focus Mode
+  const directNeighborIds = useMemo(() => {
+    if (!selectedNodeId) return new Set<string>();
+    const neighbors = new Set<string>();
+    for (const rel of graph.relationships) {
+      if (rel.sourceId === selectedNodeId) neighbors.add(rel.targetId);
+      if (rel.targetId === selectedNodeId) neighbors.add(rel.sourceId);
+    }
+    return neighbors;
+  }, [graph.relationships, selectedNodeId]);
 
   const rfNodes = useMemo<Node<GraphNodeData>[]>(
     () =>
-      positioned.map(({ node, x, y }) => ({
-        id: node.id,
-        type: "graphNode",
-        position: { x, y },
-        data: { node, isSelected: node.id === selectedNodeId },
-      })),
-    [positioned, selectedNodeId],
+      positioned.map(({ node, x, y }) => {
+        const isSelected = node.id === selectedNodeId;
+        const isDirectNeighbor = directNeighborIds.has(node.id);
+        const isDimmed =
+          focusMode &&
+          selectedNodeId !== null &&
+          !isSelected &&
+          !isDirectNeighbor;
+
+        return {
+          id: node.id,
+          type: "graphNode",
+          position: { x, y },
+          data: {
+            node,
+            isSelected,
+            isDimmed,
+            isDirectNeighbor,
+          },
+        };
+      }),
+    [positioned, selectedNodeId, directNeighborIds, focusMode],
   );
 
   const rfEdges = useMemo<Edge[]>(
     () =>
-      graph.relationships.map((rel) => ({
-        id: rel.id,
-        source: rel.sourceId,
-        target: rel.targetId,
-        style: { stroke: relationshipColor(rel.kind), strokeWidth: 1.5 },
-        // Structural containment is background context; dependency edges are the signal.
-        animated: rel.kind === "calls" || rel.kind === "imports",
-      })),
-    [graph.relationships],
+      graph.relationships.map((rel) => {
+        const connectsSelected =
+          rel.sourceId === selectedNodeId || rel.targetId === selectedNodeId;
+        const isDimmed =
+          focusMode && selectedNodeId !== null && !connectsSelected;
+
+        const baseColor = relationshipColor(rel.kind);
+
+        return {
+          id: rel.id,
+          source: rel.sourceId,
+          target: rel.targetId,
+          style: {
+            stroke: connectsSelected ? "#f97316" : baseColor,
+            strokeWidth: connectsSelected ? 2.5 : 1.2,
+            opacity: isDimmed ? 0.15 : connectsSelected ? 1 : 0.65,
+          },
+          animated: connectsSelected || rel.kind === "calls" || rel.kind === "imports",
+        };
+      }),
+    [graph.relationships, selectedNodeId, focusMode],
   );
 
   const handleNodeClick: NodeMouseHandler = (_event, rfNode) => {
@@ -84,8 +137,65 @@ export function GraphCanvas({ graph, selectedNodeId, onSelectNode }: GraphCanvas
   }, [graph.nodes]);
 
   return (
-    <div>
-      <div className="h-[460px] overflow-hidden rounded-md border border-neutral-800 bg-neutral-950">
+    <div className="space-y-2">
+      {/* Interactive Graph Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-forge-border bg-forge-card/80 px-3 py-1.5 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase text-forge-text-muted">
+            Filter:
+          </span>
+          <button
+            type="button"
+            onClick={() => setKindFilter("all")}
+            className={`rounded px-2 py-0.5 text-[11px] transition ${
+              kindFilter === "all"
+                ? "bg-forge-elevated text-forge-text-primary font-medium border border-forge-border"
+                : "text-forge-text-muted hover:text-forge-text-primary"
+            }`}
+          >
+            All ({graph.nodes.length})
+          </button>
+          {kindsPresent.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => setKindFilter(kind)}
+              className={`rounded px-2 py-0.5 text-[11px] transition ${
+                kindFilter === kind
+                  ? "bg-forge-elevated text-forge-text-primary font-medium border border-forge-border"
+                  : "text-forge-text-muted hover:text-forge-text-primary"
+              }`}
+            >
+              {kind}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Focus Mode Toggle */}
+          <button
+            type="button"
+            onClick={() => setFocusMode(!focusMode)}
+            className={`flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-medium transition ${
+              focusMode
+                ? "border-forge-accent/40 bg-forge-accent/15 text-forge-accent"
+                : "border-forge-border bg-forge-elevated text-forge-text-muted hover:text-forge-text-primary"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                focusMode ? "bg-forge-accent" : "bg-neutral-500"
+              }`}
+            />
+            <span>Focus Mode (1-Hop)</span>
+          </button>
+        </div>
+      </div>
+
+      {/* React Flow Viewport */}
+      <div
+        className={`${heightClass} overflow-hidden rounded-xl border border-forge-border bg-[#050505] relative shadow-inner`}
+      >
         <ReactFlow
           nodes={rfNodes}
           edges={rfEdges}
@@ -97,30 +207,35 @@ export function GraphCanvas({ graph, selectedNodeId, onSelectNode }: GraphCanvas
           minZoom={0.1}
           colorMode="dark"
         >
-          <Background gap={20} color="#27272a" />
-          <Controls showInteractive={false} />
+          <Background gap={24} color="#151515" />
+          <Controls showInteractive={false} className="!border-forge-border !bg-forge-panel !text-forge-text-muted" />
         </ReactFlow>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
-        {kindsPresent.map((kind) => (
-          <span key={kind} className="flex items-center gap-1.5">
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-sm border ${NODE_KIND_STYLE[kind].box}`}
-            />
-            {NODE_KIND_STYLE[kind].label}
-          </span>
-        ))}
-        <span className="text-neutral-700">|</span>
-        {["contains", "defines", "imports", "calls", "inherits"].map((kind) => (
-          <span key={kind} className="flex items-center gap-1.5">
-            <span
-              className="inline-block h-0.5 w-4"
-              style={{ backgroundColor: relationshipColor(kind) }}
-            />
-            {kind}
-          </span>
-        ))}
+      {/* Legend */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-forge-text-muted px-1">
+        <div className="flex items-center gap-3">
+          {kindsPresent.map((kind) => (
+            <span key={kind} className="flex items-center gap-1.5 text-[11px]">
+              <span
+                className={`inline-block h-2 w-2 rounded-sm border ${NODE_KIND_STYLE[kind].box}`}
+              />
+              <span className="capitalize">{NODE_KIND_STYLE[kind].label}</span>
+            </span>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {["contains", "defines", "imports", "calls", "inherits"].map((kind) => (
+            <span key={kind} className="flex items-center gap-1.5 text-[11px]">
+              <span
+                className="inline-block h-0.5 w-3 rounded-full"
+                style={{ backgroundColor: relationshipColor(kind) }}
+              />
+              <span className="font-mono">{kind}</span>
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );

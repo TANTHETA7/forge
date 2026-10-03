@@ -42,6 +42,7 @@ export type ImportSource =
   | { kind: "git"; url: string };
 
 export type StageState = "locked" | "ready" | "running" | "done" | "failed";
+export type StageStates = Record<PipelineStage, StageState>;
 
 export function useRepositoryPipeline() {
   const [project, setProject] = useState<Project | null>(null);

@@ -261,7 +261,7 @@ def _to_source_response(source: SourceReference) -> SourceReferenceResponse:
         via=source.via,
         symbol_qualified_name=source.symbol_qualified_name,
         symbol_kind=source.symbol_kind,
-        snippet=source.snippet,
+        snippet=getattr(source, "snippet", ""),
     )
 
 

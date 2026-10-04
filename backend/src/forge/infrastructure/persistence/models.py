@@ -215,6 +215,7 @@ class CodeChunkRow(Base):
         Index("ix_code_chunks_repository_id", "repository_id"),
         Index("ix_code_chunks_repo_content_hash", "repository_id", "content_hash"),
         Index("ix_code_chunks_repo_symbol_id", "repository_id", "symbol_id"),
+        Index("ix_code_chunks_repo_symbol_qname", "repository_id", "symbol_qualified_name"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)

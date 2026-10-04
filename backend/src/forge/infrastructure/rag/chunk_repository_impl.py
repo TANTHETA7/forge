@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import case, delete, func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from forge.domain.rag.entities import (
@@ -45,6 +45,7 @@ from forge.domain.rag.entities import (
     EmbeddedChunk,
     IndexStatus,
 )
+from forge.domain.rag.retrieval import extract_lexical_terms
 from forge.infrastructure.persistence.models import CodeChunkRow
 
 # Mirrors parsed_file_repository_impl.py's batching. CodeChunkRow has 16 columns;
@@ -171,6 +172,115 @@ class SqlAlchemyChunkRepository:
             embedding_model=embedding_model,
             last_indexed_at=last_indexed_at,
         )
+
+    async def search_symbols(
+        self, repository_id: UUID, symbol_names: tuple[str, ...], *, limit: int
+    ) -> tuple[CodeChunk, ...]:
+        """Return up to `limit` chunks whose `symbol_qualified_name` matches any
+        name in `symbol_names`. Scoped to `repository_id`; bounded by `limit`."""
+        if not symbol_names or limit <= 0:
+            return ()
+
+        cleaned = [s.strip() for s in symbol_names if s.strip()]
+        if not cleaned:
+            return ()
+
+        conditions = []
+        for name in cleaned:
+            conditions.extend([
+                func.lower(CodeChunkRow.symbol_qualified_name) == name.lower(),
+                CodeChunkRow.symbol_qualified_name.ilike(f"%.{name}"),
+                CodeChunkRow.symbol_qualified_name.ilike(f"{name}.%"),
+                CodeChunkRow.symbol_qualified_name.ilike(f"%.{name}.%"),
+            ])
+
+        result = await self._session.execute(
+            select(CodeChunkRow)
+            .where(
+                CodeChunkRow.repository_id == repository_id,
+                CodeChunkRow.symbol_qualified_name.isnot(None),
+                or_(*conditions),
+            )
+            .order_by(
+                case(
+                    *[
+                        (func.lower(CodeChunkRow.symbol_qualified_name) == name.lower(), 0)
+                        for name in cleaned
+                    ],
+                    *[
+                        (CodeChunkRow.symbol_qualified_name.ilike(f"%.{name}"), 1)
+                        for name in cleaned
+                    ],
+                    else_=2,
+                ),
+                func.length(CodeChunkRow.symbol_qualified_name),
+                CodeChunkRow.start_line,
+                CodeChunkRow.id,
+            )
+            .limit(limit)
+        )
+        return tuple(_row_to_chunk(row) for row in result.scalars().all())
+
+    async def search_lexical(
+        self, repository_id: UUID, query: str, *, limit: int
+    ) -> tuple[CodeChunk, ...]:
+        """Return up to `limit` chunks matching lexical/keyword search on
+        `content`, `symbol_qualified_name`, and `path`.
+        Scoped to `repository_id`; bounded by `limit`."""
+        if not query.strip() or limit <= 0:
+            return ()
+
+        terms = extract_lexical_terms(query)
+        if not terms:
+            return ()
+
+        doc_vector = func.to_tsvector(
+            "english",
+            func.coalesce(CodeChunkRow.path, "")
+            + " "
+            + func.coalesce(CodeChunkRow.symbol_qualified_name, "")
+            + " "
+            + CodeChunkRow.content,
+        )
+
+        import re
+        clean_terms = [re.sub(r"[^A-Za-z0-9_]+", "", t) for t in terms[:10]]
+        clean_terms = [t for t in clean_terms if t]
+        if not clean_terms:
+            return ()
+
+        tsquery_expr = " | ".join(clean_terms)
+        ts_query = func.to_tsquery("english", tsquery_expr)
+        ts_rank = func.ts_rank_cd(doc_vector, ts_query)
+
+        ilike_terms = [t for t in clean_terms if len(t) >= 3][:5]
+        ilike_conditions = [
+            or_(
+                CodeChunkRow.content.ilike(f"%{t}%"),
+                CodeChunkRow.symbol_qualified_name.ilike(f"%{t}%"),
+                CodeChunkRow.path.ilike(f"%{t}%"),
+            )
+            for t in ilike_terms
+        ]
+
+        result = await self._session.execute(
+            select(CodeChunkRow)
+            .where(
+                CodeChunkRow.repository_id == repository_id,
+                or_(
+                    doc_vector.op("@@")(ts_query),
+                    *ilike_conditions,
+                ),
+            )
+            .order_by(
+                ts_rank.desc(),
+                CodeChunkRow.start_line,
+                CodeChunkRow.id,
+            )
+            .limit(limit)
+        )
+        return tuple(_row_to_chunk(row) for row in result.scalars().all())
+
 
 
 def _embedded_to_params(embedded: EmbeddedChunk, *, indexed_at: datetime) -> dict[str, Any]:

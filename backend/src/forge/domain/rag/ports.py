@@ -105,6 +105,24 @@ class ChunkRepository(Protocol):
         embedding model used, and when it was last indexed."""
         ...
 
+    async def search_symbols(
+        self, repository_id: UUID, symbol_names: tuple[str, ...], *, limit: int
+    ) -> tuple[CodeChunk, ...]:
+        """Return up to `limit` chunks whose `symbol_qualified_name` matches any
+        name in `symbol_names` (exact or qualified suffix match).
+        Scoped to `repository_id`; bounded by `limit`.
+        """
+        ...
+
+    async def search_lexical(
+        self, repository_id: UUID, query: str, *, limit: int
+    ) -> tuple[CodeChunk, ...]:
+        """Return up to `limit` chunks matching lexical/keyword search on
+        `content`, `symbol_qualified_name`, and `path`.
+        Scoped to `repository_id`; bounded by `limit`.
+        """
+        ...
+
 
 @runtime_checkable
 class EmbeddingProvider(Protocol):

@@ -193,6 +193,19 @@ def test_real_rag_end_to_end_lifecycle(client: TestClient) -> None:
     assert top_source["end_line"] >= top_source["start_line"]
     assert top_source["score"] >= 0.35
 
+    # 6b. Ask Exact Symbol Question (RAG V2 Hybrid Retrieval)
+    symbol_ask_resp = client.post(
+        f"/api/v1/projects/{project_id}/repositories/{repository_id}/rag/ask",
+        json={"question": "Where is create_unit_circle defined?"},
+    )
+    assert symbol_ask_resp.status_code == 200
+    symbol_data = symbol_ask_resp.json()
+    assert symbol_data["has_sufficient_evidence"] is True
+    assert len(symbol_data["sources"]) > 0
+    top_symbol_source = symbol_data["sources"][0]
+    assert "shapes.py" in top_symbol_source["path"]
+    assert top_symbol_source["symbol_qualified_name"] == "create_unit_circle"
+
     # 7. Ask Insufficient Evidence question
     insufficient_resp = client.post(
         f"/api/v1/projects/{project_id}/repositories/{repository_id}/rag/ask",

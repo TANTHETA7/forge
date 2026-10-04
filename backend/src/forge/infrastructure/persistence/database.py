@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -41,6 +42,12 @@ async def ensure_schema(settings: Settings) -> None:
     engine = _get_engine(settings.postgres_dsn)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_code_chunks_repo_symbol_qname "
+                "ON code_chunks (repository_id, symbol_qualified_name)"
+            )
+        )
     _schema_ready = True
 
 

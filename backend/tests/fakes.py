@@ -69,6 +69,7 @@ from forge.domain.rag.entities import (
     EmbeddedChunk,
     IndexStatus,
 )
+from forge.domain.rag.retrieval import extract_lexical_terms
 from forge.domain.repository.entities import Repository
 
 
@@ -684,6 +685,70 @@ class InMemoryChunkRepository:
             embedding_model=embedding_model,
             last_indexed_at=datetime.now(UTC) if stored else None,
         )
+
+    async def search_symbols(
+        self, repository_id: UUID, symbol_names: tuple[str, ...], *, limit: int
+    ) -> tuple[CodeChunk, ...]:
+        if not symbol_names or limit <= 0:
+            return ()
+        names = [s.strip().lower() for s in symbol_names if s.strip()]
+        if not names:
+            return ()
+
+        candidates: list[tuple[int, int, CodeChunk]] = []
+        for embedded in self._chunks.get(repository_id, []):
+            chunk = embedded.chunk
+            if not chunk.symbol_qualified_name:
+                continue
+            qname = chunk.symbol_qualified_name.lower()
+            matched_priority = None
+            for name in names:
+                if qname == name:
+                    matched_priority = 0
+                    break
+                elif qname.endswith(f".{name}"):
+                    matched_priority = min(
+                        matched_priority if matched_priority is not None else 99, 1
+                    )
+                elif qname.startswith(f"{name}.") or f".{name}." in qname:
+                    matched_priority = min(
+                        matched_priority if matched_priority is not None else 99, 2
+                    )
+            if matched_priority is not None:
+                candidates.append((matched_priority, len(chunk.symbol_qualified_name), chunk))
+
+        candidates.sort(key=lambda item: (item[0], item[1], item[2].start_line, item[2].id.bytes))
+        return tuple(c for _, _, c in candidates[:limit])
+
+    async def search_lexical(
+        self, repository_id: UUID, query: str, *, limit: int
+    ) -> tuple[CodeChunk, ...]:
+        if not query.strip() or limit <= 0:
+            return ()
+        terms = [t.lower() for t in extract_lexical_terms(query)]
+        if not terms:
+            return ()
+
+        scored: list[tuple[float, CodeChunk]] = []
+        for embedded in self._chunks.get(repository_id, []):
+            chunk = embedded.chunk
+            text_corpus = (
+                f"{chunk.path} {chunk.symbol_qualified_name or ''} {chunk.content}".lower()
+            )
+            score = 0.0
+            for term in terms:
+                if term in text_corpus:
+                    score += 1.0
+                    if chunk.symbol_qualified_name and term in chunk.symbol_qualified_name.lower():
+                        score += 0.5
+                    if term in chunk.content.lower():
+                        score += 0.5
+            if score > 0.0:
+                scored.append((score, chunk))
+
+        scored.sort(key=lambda item: (-item[0], item[1].start_line, item[1].id.bytes))
+        return tuple(c for _, c in scored[:limit])
+
 
 
 class StubEmbeddingProvider:

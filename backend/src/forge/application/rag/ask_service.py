@@ -31,6 +31,7 @@ Depended on by: api/rag.py.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -49,8 +50,15 @@ from forge.domain.rag.prompting import (
     SYSTEM_PROMPT,
     build_user_prompt,
 )
-from forge.domain.rag.retrieval import cosine_similarity, rank_by_similarity
+from forge.domain.rag.retrieval import (
+    cosine_similarity,
+    find_symbol_candidates,
+    fuse_hybrid_candidates,
+    rank_by_similarity,
+)
 from forge.domain.repository.ports import RepositoryRepository
+
+logger = logging.getLogger(__name__)
 
 # Shown to the user when we decline to answer. Phrased so it is never mistaken for
 # a real, grounded answer — the frontend also renders these in a distinct state.
@@ -135,22 +143,63 @@ class RagAskService:
         if not candidates:
             return self._insufficient(question, _NOT_INDEXED_MESSAGE)
 
-        ranked = rank_by_similarity(query_embedding, candidates, top_k=self._config.top_k)
-        if not ranked or ranked[0][1] < self._config.min_score:
-            # Best match is below the floor — decline WITHOUT calling the model.
-            return self._insufficient(question, _NO_RELEVANT_CODE_MESSAGE)
-
-        vector_hits = await self._hydrate_vector_hits(repository_id, ranked)
-        if not vector_hits:
-            return self._insufficient(question, _NO_RELEVANT_CODE_MESSAGE)
-
         embedding_by_id = {c.chunk_id: c.embedding for c in candidates}
-        existing_ids = {hit.chunk.id for hit in vector_hits}
-        graph_context, graph_hits = await self._expand_graph(
-            repository_id, vector_hits, query_embedding, embedding_by_id, existing_ids
+        semantic_ranked = rank_by_similarity(
+            query_embedding, candidates, top_k=self._config.candidate_limit
+        )
+        qualifying_semantic = [
+            (cid, score) for cid, score in semantic_ranked if score >= self._config.min_score
+        ]
+
+        # 3. Exact symbol retrieval
+        candidate_pool_limit = max(self._config.top_k * 3, 20)
+        symbol_candidates = find_symbol_candidates(question)
+        symbol_chunks = await self._chunks.search_symbols(
+            repository_id, tuple(symbol_candidates), limit=candidate_pool_limit
         )
 
-        retrieved = self._merge(vector_hits, graph_hits)
+        # 4. Lexical retrieval
+        lexical_chunks = await self._chunks.search_lexical(
+            repository_id, question, limit=candidate_pool_limit
+        )
+
+        # 5. Insufficient evidence gate: decline without calling model if no retrieval
+        # branch yielded relevant candidates.
+        if not qualifying_semantic and not symbol_chunks and not lexical_chunks:
+            return self._insufficient(question, _NO_RELEVANT_CODE_MESSAGE)
+
+        # 6. Candidate fusion & deduplication
+        fused_candidates, debug = fuse_hybrid_candidates(
+            semantic_ranked=qualifying_semantic,
+            lexical_chunk_ids=[c.id for c in lexical_chunks],
+            symbol_chunk_ids=[c.id for c in symbol_chunks],
+            top_k=self._config.top_k,
+        )
+        logger.debug(
+            "Hybrid retrieval repo=%s: semantic=%d, lexical=%d, symbol=%d, merged=%d, final=%d",
+            repository_id,
+            debug.semantic_count,
+            debug.lexical_count,
+            debug.exact_symbol_count,
+            debug.merged_count,
+            debug.final_count,
+        )
+
+        if not fused_candidates:
+            return self._insufficient(question, _NO_RELEVANT_CODE_MESSAGE)
+
+        primary_hits = await self._hydrate_hybrid_hits(
+            repository_id, fused_candidates, query_embedding, embedding_by_id
+        )
+        if not primary_hits:
+            return self._insufficient(question, _NO_RELEVANT_CODE_MESSAGE)
+
+        existing_ids = {hit.chunk.id for hit in primary_hits}
+        graph_context, graph_hits = await self._expand_graph(
+            repository_id, primary_hits, query_embedding, embedding_by_id, existing_ids
+        )
+
+        retrieved = self._merge(primary_hits, graph_hits)
         prompt = build_user_prompt(
             question=question,
             retrieved=retrieved,
@@ -174,20 +223,26 @@ class RagAskService:
             embedding_model=self._embedder.model_name,
         )
 
-    async def _hydrate_vector_hits(
-        self, repository_id: UUID, ranked: list[tuple[UUID, float]]
+    async def _hydrate_hybrid_hits(
+        self,
+        repository_id: UUID,
+        fused: list[tuple[UUID, str, float]],
+        query_embedding: tuple[float, ...],
+        embedding_by_id: dict[UUID, tuple[float, ...]],
     ) -> list[RetrievedChunk]:
-        """Fetch full content for the ranked ids that clear the floor and wrap
-        each as a `vector` retrieved chunk, preserving score order."""
-        floor = self._config.min_score
-        qualifying = [(cid, score) for cid, score in ranked if score >= floor]
-        ids = tuple(cid for cid, _ in qualifying)
-        by_id = await self._chunks.get_chunks_by_ids(repository_id, ids)
-        return [
-            RetrievedChunk(chunk=by_id[cid], score=score, via="vector")
-            for cid, score in qualifying
-            if cid in by_id
-        ]
+        """Fetch full content for fused candidate ids and wrap each with its
+        provenance ('vector', 'symbol', 'lexical') and cosine score."""
+        needed_ids = tuple(cid for cid, _, _ in fused)
+        by_id = await self._chunks.get_chunks_by_ids(repository_id, needed_ids)
+        hits: list[RetrievedChunk] = []
+        for cid, via, _fused_score in fused:
+            chunk = by_id.get(cid)
+            if not chunk:
+                continue
+            embedding = embedding_by_id.get(cid)
+            score = cosine_similarity(query_embedding, embedding) if embedding else 0.0
+            hits.append(RetrievedChunk(chunk=chunk, score=score, via=via))
+        return hits
 
     async def _expand_graph(
         self,
@@ -283,13 +338,22 @@ class RagAskService:
 
     @staticmethod
     def _merge(
-        vector_hits: list[RetrievedChunk], graph_hits: list[RetrievedChunk]
+        primary_hits: list[RetrievedChunk], graph_hits: list[RetrievedChunk]
     ) -> tuple[RetrievedChunk, ...]:
-        """Combine vector and graph evidence into one deterministically ordered
-        sequence (highest score first, chunk id breaking ties)."""
-        combined = [*vector_hits, *graph_hits]
-        combined.sort(key=lambda hit: (-hit.score, hit.chunk.id.bytes))
-        return tuple(combined)
+        """Combine primary and graph evidence into one deterministically ordered
+        sequence preserving primary hybrid retrieval order."""
+        seen: set[UUID] = set()
+        result: list[RetrievedChunk] = []
+        for hit in primary_hits:
+            if hit.chunk.id not in seen:
+                seen.add(hit.chunk.id)
+                result.append(hit)
+        sorted_graph = sorted(graph_hits, key=lambda hit: (-hit.score, hit.chunk.id.bytes))
+        for hit in sorted_graph:
+            if hit.chunk.id not in seen:
+                seen.add(hit.chunk.id)
+                result.append(hit)
+        return tuple(result)
 
     @staticmethod
     def _to_source(hit: RetrievedChunk) -> SourceReference:

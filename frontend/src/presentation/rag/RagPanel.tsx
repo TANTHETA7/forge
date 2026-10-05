@@ -10,7 +10,7 @@
  * Depended on by: presentation/pipeline/PipelinePanel.tsx.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useRepositoryRag } from "@/application/rag/useRepositoryRag";
 import type { SourceReference } from "@/domain/rag/types";
@@ -51,14 +51,16 @@ export function RagPanel({
   const rag = useRepositoryRag(projectId, repositoryId, enabled);
   const [activeChip, setActiveChip] = useState<string | null>(null);
 
-  const { setQuestion, question } = rag;
+  const { setQuestion } = rag;
+  const lastInitialQuestionRef = useRef<string | null>(null);
 
-  // Sync initial question if supplied
+  // Sync initial question only when a new non-empty initialQuestion is provided
   useEffect(() => {
-    if (initialQuestion && initialQuestion !== question) {
+    if (initialQuestion && initialQuestion !== lastInitialQuestionRef.current) {
+      lastInitialQuestionRef.current = initialQuestion;
       setQuestion(initialQuestion);
     }
-  }, [initialQuestion, question, setQuestion]);
+  }, [initialQuestion, setQuestion]);
 
   if (!enabled) return null;
 
@@ -70,7 +72,6 @@ export function RagPanel({
   const handleChipClick = (q: string) => {
     setActiveChip(q);
     rag.setQuestion(q);
-    void rag.handleAsk(q);
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {

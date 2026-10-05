@@ -175,5 +175,137 @@ describe("RagPanel rendering", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("starts with an empty query and Ask Forge button disabled", async () => {
+    render(<RagPanel projectId={PROJECT_ID} repositoryId={REPO_ID} enabled={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Indexed (15 chunks)")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText<HTMLInputElement>(
+      "Ask about functions, classes, dependencies, or workflows…",
+    );
+    expect(input.value).toBe("");
+
+    const askBtn = screen.getByRole("button", { name: "Ask Forge" });
+    expect(askBtn).toBeDisabled();
+  });
+
+  it("allows typing, editing, deleting, and replacing text freely", async () => {
+    render(<RagPanel projectId={PROJECT_ID} repositoryId={REPO_ID} enabled={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Indexed (15 chunks)")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText<HTMLInputElement>(
+      "Ask about functions, classes, dependencies, or workflows…",
+    );
+    const askBtn = screen.getByRole("button", { name: "Ask Forge" });
+
+    // Type a custom question
+    fireEvent.change(input, { target: { value: "Where is the FastAPI class defined?" } });
+    expect(input.value).toBe("Where is the FastAPI class defined?");
+    expect(askBtn).not.toBeDisabled();
+
+    // Replace text (simulating select all + type)
+    fireEvent.change(input, { target: { value: "How is dependency injection implemented?" } });
+    expect(input.value).toBe("How is dependency injection implemented?");
+    expect(askBtn).not.toBeDisabled();
+
+    // Clear text (simulating backspace/delete all)
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(input.value).toBe("   ");
+    expect(askBtn).toBeDisabled();
+
+    // Re-type and submit
+    fireEvent.change(input, { target: { value: "Final custom question" } });
+    expect(input.value).toBe("Final custom question");
+    expect(askBtn).not.toBeDisabled();
+
+    fireEvent.click(askBtn);
+    await waitFor(() => {
+      expect(ragApi.askQuestion).toHaveBeenCalledWith(PROJECT_ID, REPO_ID, "Final custom question");
+    });
+  });
+
+  it("seeds initialQuestion if provided, and allows editing without reverting", async () => {
+    render(
+      <RagPanel
+        projectId={PROJECT_ID}
+        repositoryId={REPO_ID}
+        enabled={true}
+        initialQuestion="What are the upstream callers and downstream dependencies of FastAPI?"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Indexed (15 chunks)")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText<HTMLInputElement>(
+      "Ask about functions, classes, dependencies, or workflows…",
+    );
+    expect(input.value).toBe(
+      "What are the upstream callers and downstream dependencies of FastAPI?",
+    );
+
+    // Edit the text
+    fireEvent.change(input, {
+      target: { value: "Where is the route handler for /items defined?" },
+    });
+    // Ensure it was NOT reset back to initialQuestion
+    expect(input.value).toBe("Where is the route handler for /items defined?");
+
+    const askBtn = screen.getByRole("button", { name: "Ask Forge" });
+    fireEvent.click(askBtn);
+
+    await waitFor(() => {
+      expect(ragApi.askQuestion).toHaveBeenCalledWith(
+        PROJECT_ID,
+        REPO_ID,
+        "Where is the route handler for /items defined?",
+      );
+    });
+  });
+
+  it("populates field on suggested question click and allows user to edit before submitting", async () => {
+    render(<RagPanel projectId={PROJECT_ID} repositoryId={REPO_ID} enabled={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Indexed (15 chunks)")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText<HTMLInputElement>(
+      "Ask about functions, classes, dependencies, or workflows…",
+    );
+    const chipBtn = screen.getByRole("button", { name: "How does authentication work?" });
+
+    // Click chip
+    fireEvent.click(chipBtn);
+    expect(input.value).toBe("How does authentication work?");
+
+    // It should NOT have submitted yet
+    expect(ragApi.askQuestion).not.toHaveBeenCalled();
+
+    // User edits the populated suggestion
+    fireEvent.change(input, {
+      target: { value: "How does authentication work with OAuth2?" },
+    });
+    expect(input.value).toBe("How does authentication work with OAuth2?");
+
+    // User submits the final edited query
+    const askBtn = screen.getByRole("button", { name: "Ask Forge" });
+    fireEvent.click(askBtn);
+
+    await waitFor(() => {
+      expect(ragApi.askQuestion).toHaveBeenCalledWith(
+        PROJECT_ID,
+        REPO_ID,
+        "How does authentication work with OAuth2?",
+      );
+    });
+  });
 });
 

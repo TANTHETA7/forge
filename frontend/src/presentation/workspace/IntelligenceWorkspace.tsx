@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useWorkspace } from "@/presentation/workspace/WorkspaceContext";
 import { RagPanel } from "@/presentation/rag/RagPanel";
 
@@ -14,9 +15,17 @@ export function IntelligenceWorkspace({
 }: IntelligenceWorkspaceProps) {
   const {
     prefilledPrompt,
+    setPrefilledPrompt,
     navigateToExplorer,
     navigateToGraph,
   } = useWorkspace();
+
+  // Clear workspace-level prefilledPrompt after passing to RagPanel so subsequent visits start empty
+  useEffect(() => {
+    if (prefilledPrompt) {
+      setPrefilledPrompt(null);
+    }
+  }, [prefilledPrompt, setPrefilledPrompt]);
 
   if (!enabled) {
     return (

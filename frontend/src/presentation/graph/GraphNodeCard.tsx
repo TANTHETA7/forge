@@ -10,6 +10,7 @@
  * Depended on by: presentation/graph/GraphCanvas.tsx.
  */
 
+import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { graphNodeLabel, type GraphNode } from "@/domain/graph/types";
@@ -52,7 +53,7 @@ function getNodeIconBadge(node: GraphNode) {
   return { text: "?", bg: "bg-neutral-800 text-neutral-400 border-neutral-700" };
 }
 
-export function GraphNodeCard({ data }: NodeProps) {
+export const GraphNodeCard = memo(function GraphNodeCard({ data }: NodeProps) {
   const { node, isSelected, isDimmed, isDirectNeighbor } = data as GraphNodeData;
   const label = graphNodeLabel(node);
   const badgeInfo = getNodeIconBadge(node);
@@ -72,13 +73,13 @@ export function GraphNodeCard({ data }: NodeProps) {
       data-selected={isSelected}
       title={label}
       className={
-        "w-60 rounded-lg border px-3 py-2 text-left transition-all duration-200 select-none " +
+        "w-60 rounded-lg border px-3 py-2 text-left transition-colors duration-150 select-none " +
         (isSelected
-          ? "border-forge-accent bg-[#141414] ring-1 ring-forge-accent shadow-[0_0_20px_rgba(249,115,22,0.35)] z-20"
+          ? "border-forge-accent bg-[#141414] ring-1 ring-forge-accent shadow-[0_0_16px_rgba(249,115,22,0.3)] z-20"
           : isDirectNeighbor
             ? "border-[#333333] bg-[#111111] shadow-md z-10"
             : isDimmed
-              ? "opacity-25 border-forge-border/40 bg-[#080808] scale-[0.98]"
+              ? "opacity-25 border-forge-border/40 bg-[#080808]"
               : "border-forge-border bg-[#0d0d0d] hover:border-[#2a2a2a] hover:bg-[#121212]")
       }
     >
@@ -113,5 +114,5 @@ export function GraphNodeCard({ data }: NodeProps) {
       />
     </div>
   );
-}
+});
 

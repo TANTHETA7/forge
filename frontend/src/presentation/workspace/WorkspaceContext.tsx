@@ -79,9 +79,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   };
 
   const navigateToIntelligence = (initialPrompt?: string | null) => {
-    if (initialPrompt) {
-      setPrefilledPrompt(initialPrompt);
-    }
+    setPrefilledPrompt(initialPrompt ?? null);
     setSection("intelligence");
   };
 

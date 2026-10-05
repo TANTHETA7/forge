@@ -38,6 +38,7 @@ import { NODE_KIND_ORDER, NODE_KIND_STYLE, relationshipColor } from "@/presentat
 
 // Defined at module scope: React Flow warns and re-renders if this object changes identity.
 const NODE_TYPES = { graphNode: GraphNodeCard };
+const FIT_VIEW_OPTIONS = { duration: 300 } as const;
 
 interface GraphCanvasProps {
   graph: RenderableGraph;
@@ -120,7 +121,7 @@ export function GraphCanvas({
             strokeWidth: connectsSelected ? 2.5 : 1.2,
             opacity: isDimmed ? 0.15 : connectsSelected ? 1 : 0.65,
           },
-          animated: connectsSelected || rel.kind === "calls" || rel.kind === "imports",
+          animated: connectsSelected,
         };
       }),
     [graph.relationships, selectedNodeId, focusMode],
@@ -203,9 +204,14 @@ export function GraphCanvas({
           onNodeClick={handleNodeClick}
           nodesDraggable={false}
           nodesConnectable={false}
+          elementsSelectable={false}
+          nodesFocusable={false}
+          edgesFocusable={false}
+          autoPanOnNodeFocus={false}
           fitView
-          fitViewOptions={{ duration: 300 }}
+          fitViewOptions={FIT_VIEW_OPTIONS}
           minZoom={0.1}
+          maxZoom={2}
           colorMode="dark"
         >
           <Background gap={24} color="#151515" />
